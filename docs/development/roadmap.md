@@ -1,6 +1,6 @@
 # cyrius-nba-jam Development Roadmap
 
-> **Status**: v0.4.0 implemented | **Last Updated**: 2026-04-15
+> **Status**: v0.5.0 implemented | **Last Updated**: 2026-04-15
 
 ---
 
@@ -93,30 +93,35 @@ The game plays back.
 
 **Exit criteria**: Full 2-on-2 game against AI opponents. Competitive, not trivial. ✓
 
-## v0.6.0 — Fire and Game Flow
+## v0.6.0 — Game Flow Polish
 
-HE'S ON FIRE!
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | Fire mechanic — 3 consecutive baskets, unlimited turbo, 100% shooting | Not started | |
-| 2 | Full game flow — 4 quarters, halftime, overtime | Not started | |
-| 3 | Fouls — pushing, goal tending | Not started | |
-| 4 | game.cyr — complete state machine | Not started | |
-
-**Exit criteria**: Complete game from tip-off to final buzzer with fire mechanic.
-
-## v0.7.0 — Menus and Polish
-
-Team select, attract mode, audio.
+Close the gaps in the gameplay loop. Fire, game flow, and the state machine already work (v0.2.0/v0.4.0). This version fills in the missing mechanics and dead-ball handling.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | menu.cyr — team select screen | Not started | |
-| 2 | roster.cyr — team/player database with stats | Not started | |
-| 3 | Attract mode — demo gameplay | Not started | |
-| 4 | audio.cyr — sound effects, announcer calls | Not started | |
-| 5 | Visual polish — shadows, smooth animations | Not started | |
+| 1 | Inbound after scoring — reset ball to scoring team's baseline, give to player | Not started | Currently ball goes DEAD with no recovery |
+| 2 | Rebounding — PS_REBOUND state, Rebounding stat contest, jump timing near rim | Not started | PS_REBOUND enum exists but unused |
+| 3 | Clutch stat activation — boost stats in final 30 seconds of quarter | Not started | Stat defined in types.cyr but never checked |
+| 4 | Pushing fouls — excessive contact triggers foul, free inbound | Not started | Player-player collision exists but no foul detection |
+| 5 | Auto-switch on turnover — human player auto-switches to nearest teammate with ball | Not started | Currently must manually press C |
+| 6 | Dead ball recovery — handle BALL_DEAD state, inbound timer, possession reset | Not started | |
+
+**Exit criteria**: Uninterrupted game from tip-off to final buzzer. No dead states. All 9 stats actively affect gameplay.
+
+## v0.7.0 — Menus, Roster, and Audio
+
+Team select, attract mode, announcer.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | roster.cyr — team/player database with stats from HEY.DOC | Not started | Stat tables for all teams |
+| 2 | menu.cyr — team select screen with cursor navigation | Not started | |
+| 3 | Attract mode — AI vs AI demo gameplay on title screen | Not started | AI system (v0.5.0) enables this |
+| 4 | audio.cyr — sound effects, announcer text calls (BOOMSHAKALAKA) | Not started | Text-based first, PCM later |
+| 5 | Visual fire effects — sprite palette flash, ball trail during fire mode | Not started | Currently only jersey color swap |
+| 6 | Animation polish — smooth sprite transitions between states | Not started | |
+
+**Exit criteria**: Player can select a team, play a full game with announcer calls, and return to menu.
 
 ## v1.0.0 — Complete Game
 
@@ -126,6 +131,7 @@ Team select, attract mode, audio.
 | 2 | Security audit (input handling, asset loading) | Not started | |
 | 3 | Performance: stable 60fps with all effects | Not started | |
 | 4 | Fuzz: asset loading, save data | Not started | |
+| 5 | Difficulty selection (Easy/Medium/Hard) at menu | Not started | AI difficulty system exists (v0.5.0), needs UI |
 
 ## Future
 
