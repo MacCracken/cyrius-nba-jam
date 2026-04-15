@@ -143,7 +143,7 @@ fn court_draw_floor() {
 }
 
 fn court_draw_sidelines() {
-#     Left sideline (perspective: narrower at top)
+#     Left sideline (perspective: narrower at top) -- 2px thick
     var y = COURT_SCREEN_TOP;
     while (y <= COURT_SCREEN_BOTTOM) {
         var t = y - COURT_SCREEN_TOP;
@@ -151,6 +151,7 @@ fn court_draw_sidelines() {
         if (range == 0) { range = 1; }
         var x = 60 - (60 - COURT_SCREEN_LEFT) * t / range;
         fb_set(x, y, 8);
+        fb_set(x + 1, y, 8);
         y = y + 1;
     }
 
@@ -161,16 +162,19 @@ fn court_draw_sidelines() {
         var range = COURT_SCREEN_BOTTOM - COURT_SCREEN_TOP;
         if (range == 0) { range = 1; }
         var x = 260 + (COURT_SCREEN_RIGHT - 260) * t / range;
+        fb_set(x - 1, y, 8);
         fb_set(x, y, 8);
         y = y + 1;
     }
 }
 
 fn court_draw_baselines() {
-#     Far baseline (top)
+#     Far baseline (top) -- 2px thick
     draw_hline(60, 260, COURT_SCREEN_TOP, 8);
-#     Near baseline (bottom)
+    draw_hline(60, 260, COURT_SCREEN_TOP + 1, 8);
+#     Near baseline (bottom) -- 2px thick
     draw_hline(COURT_SCREEN_LEFT, COURT_SCREEN_RIGHT, COURT_SCREEN_BOTTOM, 8);
+    draw_hline(COURT_SCREEN_LEFT, COURT_SCREEN_RIGHT, COURT_SCREEN_BOTTOM - 1, 8);
 }
 
 fn court_draw_center_line() {
@@ -185,33 +189,29 @@ fn court_draw_center_line() {
     var right = 260 + (COURT_SCREEN_RIGHT - 260) * t / range;
 
     draw_hline(left, right, cy, 8);
+    draw_hline(left, right, cy + 1, 8);
 }
 
 fn court_draw_center_circle() {
-#     Circle at center court
+#     Circle at center court -- 2px thick outline
     var cx = 160;
     var cy = (COURT_SCREEN_TOP + COURT_SCREEN_BOTTOM) / 2;
-    var rx = 20;
-    var ry = 8;
+    var rx = 22;
+    var ry = 10;
 
-#     Draw circle using midpoint algorithm (simplified: outline only)
-    var angle = 0;
-    while (angle < 64) {
-#         Approximate circle with 64 points
-#         Using sin/cos approximation: iterate in octants
-        var dx = rx * angle / 64;
+#     Step through X, compute Y from ellipse equation, draw 2px blocks
+    var dx = 0 - rx;
+    while (dx <= rx) {
         var dy_sq = ry * ry - (ry * ry * dx * dx) / (rx * rx);
-
-#         Simple approach: step X, compute Y
-        var x = cx - rx + dx * 2;
-        if (dy_sq > 0) {
-#             Approximate sqrt
-            var dy = 1;
+        if (dy_sq >= 0) {
+            var dy = 0;
             while (dy * dy < dy_sq) { dy = dy + 1; }
-            fb_set(x, cy - dy, 10);
-            fb_set(x, cy + dy, 10);
+#             Top arc -- 2px thick
+            draw_rect(cx + dx, cy - dy, 2, 2, 10);
+#             Bottom arc -- 2px thick
+            draw_rect(cx + dx, cy + dy - 1, 2, 2, 10);
         }
-        angle = angle + 1;
+        dx = dx + 1;
     }
 }
 
@@ -236,11 +236,14 @@ fn court_draw_paint_left() {
 #         Top and bottom lines of paint
         if (y == paint_top) {
             draw_hline(paint_left, paint_right, y, 9);
+            draw_hline(paint_left, paint_right, y + 1, 9);
         } elif (y == paint_bottom) {
+            draw_hline(paint_left, paint_right, y - 1, 9);
             draw_hline(paint_left, paint_right, y, 9);
         } else {
-#             Side line only
+#             Side line -- 2px thick
             fb_set(paint_right, y, 9);
+            fb_set(paint_right + 1, y, 9);
         }
         y = y + 1;
     }
@@ -263,9 +266,13 @@ fn court_draw_paint_right() {
 
         if (y == paint_top) {
             draw_hline(paint_left, paint_right, y, 9);
+            draw_hline(paint_left, paint_right, y + 1, 9);
         } elif (y == paint_bottom) {
+            draw_hline(paint_left, paint_right, y - 1, 9);
             draw_hline(paint_left, paint_right, y, 9);
         } else {
+#             Side line -- 2px thick
+            fb_set(paint_left - 1, y, 9);
             fb_set(paint_left, y, 9);
         }
         y = y + 1;
@@ -273,8 +280,7 @@ fn court_draw_paint_right() {
 }
 
 fn court_draw_three_point_left() {
-#     Three-point arc on left side
-#     Simplified: straight lines near sideline, arc at top
+#     Three-point arc on left side -- 2px thick
     var arc_cx = 60 + 10;
     var arc_cy = COURT_SCREEN_TOP + 15;
     var rx = 35;
@@ -287,14 +293,14 @@ fn court_draw_three_point_left() {
         if (dy_sq >= 0) {
             var dy = 0;
             while (dy * dy < dy_sq) { dy = dy + 1; }
-            fb_set(arc_cx + x, arc_cy + dy, 9);
+            draw_rect(arc_cx + x, arc_cy + dy, 2, 2, 9);
         }
         x = x + 1;
     }
 }
 
 fn court_draw_three_point_right() {
-#     Mirror of left three-point arc
+#     Mirror of left three-point arc -- 2px thick
     var arc_cx = 260 - 10;
     var arc_cy = COURT_SCREEN_TOP + 15;
     var rx = 35;
@@ -306,29 +312,35 @@ fn court_draw_three_point_right() {
         if (dy_sq >= 0) {
             var dy = 0;
             while (dy * dy < dy_sq) { dy = dy + 1; }
-            fb_set(arc_cx - x, arc_cy + dy, 9);
+            draw_rect(arc_cx - x - 1, arc_cy + dy, 2, 2, 9);
         }
         x = x + 1;
     }
 }
 
 fn court_draw_rim_left() {
-#     Left basket: backboard + rim
+#     Left basket: backboard + rim + net
     var rim_screen_y = COURT_SCREEN_TOP + 10;
 
-#     Find sideline X at rim Y
     var t = rim_screen_y - COURT_SCREEN_TOP;
     var range = COURT_SCREEN_BOTTOM - COURT_SCREEN_TOP;
     if (range == 0) { range = 1; }
     var left_x = 60 - (60 - COURT_SCREEN_LEFT) * t / range;
 
-#     Backboard (vertical bar)
-    draw_vline(left_x + 5, rim_screen_y - 3, rim_screen_y + 3, 13);
-    draw_vline(left_x + 6, rim_screen_y - 3, rim_screen_y + 3, 13);
+#     Backboard (wider vertical bar)
+    draw_rect(left_x + 3, rim_screen_y - 5, 3, 12, 13);
+    draw_rect(left_x + 4, rim_screen_y - 6, 1, 14, 14);
 
-#     Rim (small horizontal line extending from backboard)
-    draw_hline(left_x + 7, left_x + 12, rim_screen_y, 12);
-    draw_hline(left_x + 7, left_x + 12, rim_screen_y + 1, 12);
+#     Rim (orange, extending from backboard)
+    draw_rect(left_x + 6, rim_screen_y - 1, 8, 3, 12);
+
+#     Net suggestion (light vertical lines below rim)
+    fb_set(left_x + 8, rim_screen_y + 2, 15);
+    fb_set(left_x + 10, rim_screen_y + 2, 15);
+    fb_set(left_x + 12, rim_screen_y + 2, 15);
+    fb_set(left_x + 9, rim_screen_y + 3, 15);
+    fb_set(left_x + 11, rim_screen_y + 3, 15);
+    fb_set(left_x + 10, rim_screen_y + 4, 15);
 }
 
 fn court_draw_rim_right() {
@@ -341,10 +353,17 @@ fn court_draw_rim_right() {
     var right_x = 260 + (COURT_SCREEN_RIGHT - 260) * t / range;
 
 #     Backboard
-    draw_vline(right_x - 5, rim_screen_y - 3, rim_screen_y + 3, 13);
-    draw_vline(right_x - 6, rim_screen_y - 3, rim_screen_y + 3, 13);
+    draw_rect(right_x - 5, rim_screen_y - 5, 3, 12, 13);
+    draw_rect(right_x - 4, rim_screen_y - 6, 1, 14, 14);
 
 #     Rim
-    draw_hline(right_x - 12, right_x - 7, rim_screen_y, 12);
-    draw_hline(right_x - 12, right_x - 7, rim_screen_y + 1, 12);
+    draw_rect(right_x - 13, rim_screen_y - 1, 8, 3, 12);
+
+#     Net
+    fb_set(right_x - 11, rim_screen_y + 2, 15);
+    fb_set(right_x - 9, rim_screen_y + 2, 15);
+    fb_set(right_x - 7, rim_screen_y + 2, 15);
+    fb_set(right_x - 10, rim_screen_y + 3, 15);
+    fb_set(right_x - 8, rim_screen_y + 3, 15);
+    fb_set(right_x - 9, rim_screen_y + 4, 15);
 }

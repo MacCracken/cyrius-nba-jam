@@ -32,8 +32,8 @@ var BALL_AIR_DRAG = 65209;
 var BALL_SCORED_FRAMES = 20;
 
 # Sprite dimensions
-var BALL_SPRITE_W = 8;
-var BALL_SPRITE_H = 8;
+var BALL_SPRITE_W = 12;
+var BALL_SPRITE_H = 12;
 
 # --- Ball struct ---
 # x, y = court position (fixed-point 16.16)
@@ -272,8 +272,8 @@ fn ball_draw(b) {
     var scale = court_scale_at_y(y);
     var draw_w = asr_ball(BALL_SPRITE_W * scale, 16);
     var draw_h = asr_ball(BALL_SPRITE_H * scale, 16);
-    if (draw_w < 3) { draw_w = 3; }
-    if (draw_h < 3) { draw_h = 3; }
+    if (draw_w < 5) { draw_w = 5; }
+    if (draw_h < 5) { draw_h = 5; }
 
 #     Center on position
     var draw_x = screen_x - draw_w / 2;
@@ -319,11 +319,25 @@ fn ball_draw(b) {
         if (state == BALL_SCORED) {
             ball_color = 48;
         }
-        draw_rect(draw_x, draw_y, draw_w, draw_h, ball_color);
-#         Seam lines
-        if (draw_w > 4) {
-            draw_hline(draw_x, draw_x + draw_w - 1, draw_y + draw_h / 2, 35);
-            draw_vline(draw_x + draw_w / 2, draw_y, draw_y + draw_h - 1, 35);
+#         Filled circle approximation
+        var bcx = draw_x + draw_w / 2;
+        var bcy = draw_y + draw_h / 2;
+        var br = draw_w / 2;
+        var by = 0 - br;
+        while (by <= br) {
+            # x range at this y: sqrt(r^2 - y^2)
+            var bx_max_sq = br * br - by * by;
+            var bx_max = 0;
+            while (bx_max * bx_max < bx_max_sq) { bx_max = bx_max + 1; }
+            if (bx_max > 0) {
+                draw_hline(bcx - bx_max, bcx + bx_max, bcy + by, ball_color);
+            }
+            by = by + 1;
+        }
+#         Seam lines (cross)
+        if (draw_w > 6) {
+            draw_hline(bcx - br + 1, bcx + br - 1, bcy, 35);
+            draw_vline(bcx, bcy - br + 1, bcy + br - 1, 35);
         }
     }
 }
