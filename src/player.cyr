@@ -45,9 +45,9 @@ var BLOCK_FRAMES = 20;
 var FALL_FRAMES = 30;
 var REBOUND_FRAMES = 20;
 
-# Player sprite dimensions (placeholder)
-var PLAYER_SPRITE_W = 16;
-var PLAYER_SPRITE_H = 24;
+# Player sprite dimensions (placeholder -- larger for visibility)
+var PLAYER_SPRITE_W = 24;
+var PLAYER_SPRITE_H = 36;
 
 # --- Player struct ---
 # 23 fields (stats is 9 slots + 3 sprite fields = 23 total before stats,
@@ -343,8 +343,8 @@ fn player_draw(p) {
 #     Scaled sprite dimensions
     var draw_w = asr_player(PLAYER_SPRITE_W * scale, 16);
     var draw_h = asr_player(PLAYER_SPRITE_H * scale, 16);
-    if (draw_w < 4) { draw_w = 4; }
-    if (draw_h < 6) { draw_h = 6; }
+    if (draw_w < 8) { draw_w = 8; }
+    if (draw_h < 12) { draw_h = 12; }
 
 #     Center sprite on position
     var draw_x = screen_x - draw_w / 2;
@@ -389,13 +389,63 @@ fn player_draw(p) {
             if (on_fire != 1) { jersey_color = 48; }
         }
 
-#         Head
-        var head_h = draw_h / 4;
-        var head_w = draw_w / 2;
+#         Proportions
+        var head_h = draw_h / 5;
+        var torso_h = draw_h * 2 / 5;
+        var leg_h = draw_h - head_h - torso_h;
+        var head_w = draw_w * 2 / 5;
+        var torso_w = draw_w * 3 / 4;
+        var arm_w = (draw_w - torso_w) / 2;
+        var leg_w = torso_w / 2 - 1;
+
+#         Head (centered, skin tone)
         var head_x = draw_x + (draw_w - head_w) / 2;
         draw_rect(head_x, draw_y, head_w, head_h, 20);
 
-#         Body
-        draw_rect(draw_x, draw_y + head_h, draw_w, draw_h - head_h, jersey_color);
+#         Torso (jersey color, centered)
+        var torso_x = draw_x + (draw_w - torso_w) / 2;
+        var torso_y = draw_y + head_h;
+        draw_rect(torso_x, torso_y, torso_w, torso_h, jersey_color);
+
+#         Jersey number area (white stripe on chest)
+        if (torso_w > 6) {
+            var num_w = torso_w / 3;
+            var num_x = torso_x + (torso_w - num_w) / 2;
+            draw_rect(num_x, torso_y + 2, num_w, torso_h / 3, 63);
+        }
+
+#         Arms (skin tone, beside torso)
+        var arm_h = torso_h * 2 / 3;
+        if (arm_w > 0) {
+            draw_rect(torso_x - arm_w, torso_y + 1, arm_w, arm_h, 20);
+            draw_rect(torso_x + torso_w, torso_y + 1, arm_w, arm_h, 20);
+        }
+
+#         Shorts (darker jersey)
+        var shorts_color = jersey_color;
+        var shorts_y = torso_y + torso_h;
+        var shorts_h = leg_h / 3;
+        if (shorts_h < 1) { shorts_h = 1; }
+        draw_rect(torso_x, shorts_y, torso_w, shorts_h, shorts_color);
+
+#         Legs (skin tone, two columns with gap)
+        var legs_y = shorts_y + shorts_h;
+        var legs_h = leg_h - shorts_h;
+        if (legs_h > 0) {
+            var leg_x1 = torso_x + 1;
+            var leg_x2 = torso_x + torso_w - leg_w - 1;
+            draw_rect(leg_x1, legs_y, leg_w, legs_h, 20);
+            draw_rect(leg_x2, legs_y, leg_w, legs_h, 20);
+        }
+
+#         Shoes (dark)
+        if (legs_h > 2) {
+            var shoe_h = 2;
+            var shoe_y = draw_y + draw_h - shoe_h;
+            var leg_x1 = torso_x + 1;
+            var leg_x2 = torso_x + torso_w - leg_w - 1;
+            draw_rect(leg_x1, shoe_y, leg_w + 1, shoe_h, 23);
+            draw_rect(leg_x2, shoe_y, leg_w + 1, shoe_h, 23);
+        }
     }
 }

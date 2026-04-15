@@ -88,9 +88,10 @@ fn court_scale_at_y(game_y) {
     var t_den = asr(range_game, 8);
     if (t_den == 0) { return 65536; }
 
-#     scale = 0.5 + 0.5 * t = 32768 + 32768 * t
+#     scale = 0.65 + 0.35 * t (far=0.65, near=1.0)
+#     42598 = 0.65 * 65536, 22938 = 0.35 * 65536
     var t_frac = (t_num << 16) / t_den;
-    return 32768 + asr(t_frac, 1);
+    return 42598 + asr(t_frac * 22938, 16);
 }
 
 # --- Court drawing ---

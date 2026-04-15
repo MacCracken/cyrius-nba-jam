@@ -146,6 +146,8 @@ Team select, attract mode, announcer.
 
 ## Future
 
+- **T-Unit IMG extractor** — decode Williams arcade DMA sprite format from historicalsource/nba-jam-tournament-edition IMG/ directory. Extract court, player, ball, dunk sprites + palettes to PNG sprite sheets. Cross-reference with MAME ROM dump tooling on Chewlix cabinet
+- **Real asset loading** — replace placeholder draw_rect geometry with extracted sprite sheets. Palette-indexed framebuffer already matches T-Unit color model
 - **Multiplayer** — local split-screen or network play
 - **kiran integration** — extract sprite/animation/AI systems into kiran APIs
 - **impetus integration** — extract physics into impetus collision/trajectory APIs

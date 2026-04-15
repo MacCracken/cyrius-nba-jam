@@ -97,35 +97,34 @@ fn hud_draw(home_score, away_score, quarter, game_clock, shot_clock, players, pl
     hud_init_font();
 
 #     Top bar background
-    draw_rect(0, 0, SCREEN_W, 16, 46);
+    draw_rect(0, 0, SCREEN_W, 22, 46);
 
-#     Home score (left side)
-    hud_draw_number(home_score, 10, 3, 41, 2);
+#     Home score (left side) -- scale 3 for readability
+    hud_draw_number(home_score, 6, 3, 41, 3);
 
-#     "Q" + quarter number (center-left)
-    hud_draw_digit(0, 130, 4, 40, 1);
-    hud_draw_digit(quarter, 140, 3, 40, 2);
+#     Quarter number (center-left)
+    hud_draw_digit(quarter, 120, 3, 40, 3);
 
 #     Game clock (center)
     var minutes = game_clock / 60;
     var seconds = game_clock - minutes * 60;
-    hud_draw_number(minutes, 155, 3, 40, 2);
-#     Colon
-    fb_set(172, 5, 40);
-    fb_set(172, 9, 40);
+    hud_draw_number(minutes, 140, 3, 63, 3);
+#     Colon -- 2x2 dots
+    draw_rect(163, 5, 2, 2, 63);
+    draw_rect(163, 11, 2, 2, 63);
 #     Seconds (zero-padded)
-    hud_draw_digit(seconds / 10, 176, 3, 40, 2);
-    hud_draw_digit(seconds - (seconds / 10) * 10, 184, 3, 40, 2);
+    hud_draw_digit(seconds / 10, 168, 3, 63, 3);
+    hud_draw_digit(seconds - (seconds / 10) * 10, 181, 3, 63, 3);
 
 #     Away score (right side)
-    hud_draw_number(away_score, 260, 3, 41, 2);
+    hud_draw_number(away_score, 250, 3, 41, 3);
 
 #     Shot clock (below top bar, centered)
     if (shot_clock < 10) {
 #         Red when low
-        hud_draw_number(shot_clock, 152, 18, 42, 2);
+        hud_draw_number(shot_clock, 150, 24, 42, 2);
     } else {
-        hud_draw_number(shot_clock, 148, 18, 40, 1);
+        hud_draw_number(shot_clock, 145, 24, 40, 2);
     }
 
 #     Turbo meters (bottom of screen)
