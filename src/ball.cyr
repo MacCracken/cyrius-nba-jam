@@ -105,6 +105,7 @@ fn ball_update(b) {
 }
 
 fn ball_update_held(b) {
+    if (b == 0) { return; }
     var ptr: *i64 = b;
     var holder = *(ptr + 7);
 

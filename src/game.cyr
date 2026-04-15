@@ -229,6 +229,13 @@ fn game_end_quarter(g) {
 fn game_on_score(g, ball, points, players, player_count) {
     var gp: *i64 = g;
 
+    // Guard: don't score if not in PLAYING state
+    if (*gp != STATE_PLAYING) { return; }
+
+    // Guard: points must be valid
+    if (points < 1) { return; }
+    if (points > 3) { points = 3; }
+
     // Determine who scored (from ball's last_shooter)
     var bp: *i64 = ball;
     var shooter = *(bp + 9);

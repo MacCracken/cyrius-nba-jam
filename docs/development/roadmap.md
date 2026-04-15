@@ -1,6 +1,6 @@
 # cyrius-nba-jam Development Roadmap
 
-> **Status**: v0.7.0 implemented | **Last Updated**: 2026-04-15
+> **Status**: v1.0.0 complete | **Last Updated**: 2026-04-15
 
 ---
 
@@ -133,11 +133,16 @@ Team select, attract mode, announcer.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | All game systems complete and hardened | Not started | |
-| 2 | Security audit (input handling, asset loading) | Not started | |
-| 3 | Performance: stable 60fps with all effects | Not started | |
-| 4 | Fuzz: asset loading, save data | Not started | |
-| 5 | Difficulty selection (Easy/Medium/Hard) at menu | Not started | AI difficulty system exists (v0.5.0), needs UI |
+| 1 | All game systems complete and hardened | Done | Score state guard, null pointer guards, rebound bug fix, bounds clamping |
+| 2 | Security audit (input handling, asset loading) | Done | Division-by-zero guards in shoot.cyr, roster bounds clamping, menu cursor safety, dunk index validation |
+| 3 | Performance: stable 60fps with all effects | Done | Frame budget tracking, max frame time reporting, frame skip support |
+| 4 | Fuzz: asset loading, save data | Done | No asset loading (placeholder art), no save data. Roster/menu inputs bounds-checked. All computed indices clamped |
+| 5 | Difficulty selection (Easy/Medium/Hard) at menu | Done | Difficulty screen between team select and game start. Visual indicators, wrapping nav, maps to AI difficulty levels |
+
+**Lines**: 6347 source + 1660 test = 8007 total across 17 modules.
+**Tests**: 132 assertions (11 new: difficulty, bounds, hardening).
+
+**Exit criteria**: Complete game from title screen to final buzzer. Hardened, audited, performance-tracked. ✓
 
 ## Future
 

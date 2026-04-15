@@ -59,6 +59,7 @@ fn compute_shot_velocity(sx, sy, sz, tx, ty, tz, flight_time) {
     // Add arc height: ball goes up then comes down
     // We want the ball to peak at tz + arc_height midway through flight
     // vz = dz/t + g*t/2 + 2*arc_height/t
+    if (flight_time < 1) { flight_time = 1; }
     var vx = dx / flight_time;
     var vy = dy / flight_time;
 
@@ -92,6 +93,7 @@ fn compute_shot(player, rim_x, rim_y) {
     var dz = tz - sz;
 
     var t = SHOT_FLIGHT_TIME;
+    if (t < 1) { t = 1; }
 
     _shot_vx = dx / t;
     _shot_vy = dy / t;

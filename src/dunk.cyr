@@ -210,6 +210,10 @@ fn dunk_start(player, player_index, ball, rim_x, rim_y) {
 fn dunk_update(player, player_index, ball) {
     dunk_init();
 
+    // Guard: valid player index
+    if (player_index < 0) { return; }
+    if (player_index >= 4) { return; }
+
     var ds_ptr = load64(&_dunk_states + player_index * 8);
     if (ds_ptr == 0) { return; }
 

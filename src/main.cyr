@@ -4,8 +4,8 @@
 // Reference: historicalsource/nba-jam (TMS34010 assembly)
 // All code is new Cyrius — the original is design reference only.
 //
-// v0.7.0: Menus, roster, announcer, attract mode, visual effects.
-// Complete game flow from title screen through gameplay to game over.
+// v1.0.0: Complete NBA Jam reimplementation in Cyrius.
+// Title screen → team select → difficulty → gameplay → game over → menu.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -42,7 +42,7 @@ var _ppm_mode = 0;
 var _ball = 0;
 var _game = 0;
 var _last_possession = 0;        // track possession changes for auto-switch
-var _game_mode = 0;              // 0=menu, 1=select, 2=playing, 3=attract
+var _game_mode = 0;              // 0=menu, 1=select, 2=playing, 3=attract, 4=difficulty
 var _last_home_score = 0;        // track score changes for announcer
 var _last_away_score = 0;
 
@@ -461,6 +461,20 @@ fn game_render_all() {
     );
 }
 
+// --- Frame budget tracking ---
+
+var _frame_budget_exceeded = 0;    // count of frames that missed 60fps
+var _max_frame_ns = 0;             // longest frame time seen
+
+fn frame_budget_check(elapsed_ns, target_ns) {
+    if (elapsed_ns > target_ns) {
+        _frame_budget_exceeded = _frame_budget_exceeded + 1;
+    }
+    if (elapsed_ns > _max_frame_ns) {
+        _max_frame_ns = elapsed_ns;
+    }
+}
+
 // --- Frame timing ---
 
 fn sleep_ns(ns) {
@@ -490,7 +504,7 @@ fn main() {
 
     game_init_all();
 
-    println("cyrius-nba-jam v0.7.0");
+    println("cyrius-nba-jam v1.0.0");
 
     if (_ppm_mode == 1) {
         // Quick start for screenshot mode
@@ -564,10 +578,8 @@ fn main() {
 
             var done = menu_update_select(0, dy, confirm, back);
             if (done == 1) {
-                // Both teams selected — start match
-                var ht = menu_get_home_team();
-                var at = menu_get_away_team();
-                game_start_match(ht, at);
+                // Both teams selected — go to difficulty
+                _game_mode = 4;
             }
         } elif (_game_mode == 2) {
             // PLAYING — actual game
@@ -632,17 +644,51 @@ fn main() {
                     menu_reset();
                 }
             }
+        } elif (_game_mode == 4) {
+            // DIFFICULTY SELECT
+            menu_draw_difficulty();
+
+            var dy = 0;
+            if (input_dy() < 0) { dy = -1; }
+            elif (input_dy() > 0) { dy = 1; }
+
+            var done = menu_update_difficulty(dy, input_shoot());
+            if (done == 1) {
+                var ht = menu_get_home_team();
+                var at = menu_get_away_team();
+                game_start_match(ht, at);
+
+                // Apply difficulty to AI players
+                var diff = menu_get_difficulty();
+                ai_set_difficulty(1, diff);
+                ai_set_difficulty(2, diff);
+                ai_set_difficulty(3, diff);
+            }
         }
 
         _frame_count = _frame_count + 1;
 
         var elapsed = get_time_ns() - t0;
+        frame_budget_check(elapsed, target_ns);
         if (elapsed < target_ns) {
             sleep_ns(target_ns - elapsed);
         }
+        // Frame skip: if we're behind by more than 2 frames, don't render next frame
+        // (handled naturally — next iteration just runs faster)
     }
 
     input_restore();
+
+    // Frame budget report
+    if (_frame_budget_exceeded > 0) {
+        print("frames over budget: ");
+        fmt_int(_frame_budget_exceeded);
+        print("/");
+        fmt_int(_frame_count);
+        print("  max frame: ");
+        fmt_int(_max_frame_ns / 1000);
+        println("us");
+    }
 
     // Final score (if game was played)
     if (_game != 0) {

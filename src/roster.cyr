@@ -275,6 +275,10 @@ fn roster_stat_rebound(slot) {
 // --- Apply roster stats to a player ---
 
 fn roster_apply_stats(player, team_id, player_index) {
+    if (team_id < 0) { team_id = 0; }
+    if (team_id >= TEAM_COUNT) { team_id = TEAM_COUNT - 1; }
+    if (player_index < 0) { player_index = 0; }
+    if (player_index >= PLAYERS_PER_TEAM) { player_index = PLAYERS_PER_TEAM - 1; }
     var slot = team_id * 2 + player_index;
     player_set_stats(player,
         roster_stat_speed(slot),

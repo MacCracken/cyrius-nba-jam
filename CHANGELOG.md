@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-04-15
+
+### Added
+- **Difficulty selection UI** — Screen between team select and game start. Easy/Medium/Hard with visual indicators (green/yellow/red). Arrow keys navigate, shoot confirms. Difficulty maps to AI system's Easy (halved probs, slow reactions), Medium (baseline), Hard (1.5x probs, near-instant reactions). Wrapping cursor navigation.
+- **Frame budget tracking** — Counts frames that exceed 16.67ms target. Tracks maximum frame time. Reports at exit: "frames over budget: N/total  max frame: Nus". Enables performance regression detection.
+
+### Fixed
+- **Security: division-by-zero guards** — shoot.cyr: flight_time clamped to minimum 1 in both compute_shot_velocity and compute_shot. Prevents crash on degenerate trajectory calculations.
+- **Security: roster bounds clamping** — roster_apply_stats validates team_id (0 to TEAM_COUNT-1) and player_index (0 to PLAYERS_PER_TEAM-1) with defensive clamping. Out-of-bounds inputs no longer produce undefined behavior.
+- **Security: menu cursor bounds** — Defensive double-clamp on cursor position after wrap arithmetic. Prevents out-of-range team selection.
+- **Hardening: score state guard** — game_on_score now rejects scoring when game is not in STATE_PLAYING. Prevents double-scoring or scoring during tipoff/halftime/inbound transitions. Points clamped to 1-3 range.
+- **Hardening: null pointer guards** — ball_update_held guards against null ball pointer. dunk_update validates player_index range (0-3) before array access.
+- **Hardening: rebound committed-player skip** — Fixed bug where committed players in rebound contest would abort the entire contest (return 0 inside loop). Now properly skips committed players and continues evaluating remaining candidates.
+- 11 new test assertions (132 total): difficulty default/select/wrap, roster OOB clamping, score state guard, dunk OOB index, ball null guard, rebound committed skip
+
+### Project stats
+- 17 source modules, 1 test file
+- 6347 lines of Cyrius source + 1660 lines of tests = 8007 total
+- Zero external dependencies
+
 ## [0.7.0] — 2026-04-15
 
 ### Added

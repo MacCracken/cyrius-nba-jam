@@ -1,7 +1,8 @@
 // cyrius-nba-jam — test suite
-// v0.7.0: Tests for physics, fire, stats, render, sprite, court,
+// v1.0.0: Tests for physics, fire, stats, render, sprite, court,
 // player, ball, collision, shooting, dunks, game state, HUD, AI,
-// inbound, rebound, clutch, fouls, roster, menu, announcer.
+// inbound, rebound, clutch, fouls, roster, menu, announcer,
+// difficulty, bounds, hardening.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -1342,6 +1343,117 @@ fn test_fire_jersey_flash() {
     return 0;
 }
 
+// ========= Difficulty =========
+
+fn test_difficulty_default() {
+    _menu_init_done = 0;
+    menu_init();
+    assert_eq(menu_get_difficulty(), 1, "default difficulty = medium");
+    return 0;
+}
+
+fn test_difficulty_select() {
+    _menu_init_done = 0;
+    menu_init();
+    menu_reset();
+
+    // Navigate to hard (down twice from medium=1 → 2)
+    menu_update_difficulty(1, 0);
+    assert_eq(menu_get_difficulty(), 2, "difficulty = hard after down");
+
+    // Confirm
+    var done = menu_update_difficulty(0, 1);
+    assert_eq(done, 1, "difficulty confirmed");
+    return 0;
+}
+
+fn test_difficulty_wrap() {
+    _menu_init_done = 0;
+    menu_init();
+    menu_reset();
+
+    // Go up from easy (0) should wrap to hard (2)
+    // First go to easy
+    menu_update_difficulty(-1, 0);   // medium→easy
+    assert_eq(menu_get_difficulty(), 0, "difficulty = easy");
+    menu_update_difficulty(-1, 0);   // easy→hard (wrap)
+    assert_eq(menu_get_difficulty(), 2, "difficulty wraps to hard");
+    return 0;
+}
+
+// ========= Bounds / Safety =========
+
+fn test_roster_oob_clamped() {
+    // Out-of-bounds team_id should be clamped, not crash
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    roster_apply_stats(p, 99, 0);    // way out of bounds
+    var pp: *i64 = p;
+    // Should have gotten team 7 stats (clamped)
+    assert(*(pp + 17) >= 1, "OOB roster clamps speed >= 1");
+    assert(*(pp + 17) <= 10, "OOB roster clamps speed <= 10");
+    return 0;
+}
+
+fn test_score_guard_wrong_state() {
+    // game_on_score should not score when not in PLAYING state
+    var g = game_new();
+    var gp: *i64 = g;
+    *gp = STATE_TIPOFF;    // not PLAYING
+    *(gp + 4) = 0;         // home score = 0
+
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var players[1];
+    store64(&players, p1);
+
+    var b = ball_new(6553600, 8519680);
+    var bp: *i64 = b;
+    *(bp + 9) = p1;        // last_shooter
+
+    game_on_score(g, b, 2, &players, 1);
+    assert_eq(*(gp + 4), 0, "no score during tipoff state");
+    return 0;
+}
+
+fn test_dunk_oob_index() {
+    // dunk_update with invalid index should not crash
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var b = ball_new(6553600, 8519680);
+    dunk_init();
+    dunk_update(p, -1, b);   // negative index
+    dunk_update(p, 99, b);   // way too high
+    // If we get here without crashing, the guard works
+    assert(1 == 1, "dunk OOB index handled safely");
+    return 0;
+}
+
+fn test_ball_null_guard() {
+    // ball_update_held with null ball should not crash
+    ball_update_held(0);
+    assert(1 == 1, "null ball handled safely");
+    return 0;
+}
+
+fn test_rebound_committed_skip() {
+    // Players in committed states should be skipped during rebound contest
+    var b = ball_new(RIM_RIGHT_X, RIM_Y);
+    var bp: *i64 = b;
+    *(bp + 6) = BALL_BOUNCE;
+    *(bp + 2) = 131072;
+
+    var p1 = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 196608, RIM_Y);
+    player_set_stats(p1, 5, 5, 5, 5, 5, 5, 5, 5, 9);
+    // Put player in committed state
+    player_try_transition(p1, PS_SHOOT);
+
+    var players[1];
+    store64(&players, p1);
+
+    _rebound_rng = 99999;
+    var winner = collision_check_rebound(b, &players, 1);
+    assert_eq(winner, 0, "committed player skipped in rebound");
+    return 0;
+}
+
 // ========= Integration =========
 
 fn test_court_render_pixels() {
@@ -1524,6 +1636,18 @@ fn main() {
 
     // Visual effects
     test_fire_jersey_flash();
+
+    // Difficulty
+    test_difficulty_default();
+    test_difficulty_select();
+    test_difficulty_wrap();
+
+    // Bounds / Safety
+    test_roster_oob_clamped();
+    test_score_guard_wrong_state();
+    test_dunk_oob_index();
+    test_ball_null_guard();
+    test_rebound_committed_skip();
 
     // Integration
     test_court_render_pixels();
