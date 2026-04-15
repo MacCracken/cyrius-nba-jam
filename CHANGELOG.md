@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-04-15
+
+### Added
+- **ai.cyr** — 723 lines. Full drone AI for CPU-controlled players. Offensive AI: ball handler evaluates dunk (priority when in range), shoot (stat-driven accuracy + distance + fire awareness), pass (teammate openness + positional advantage + pressure detection), drive (direction toward basket with turbo). Off-ball offense: positional movement for pass reception, alley-oop zone seeking. Defensive AI: chase ball handler with positioning between handler and basket, steal attempts (proximity + cooldown + difficulty-adjusted probability), block attempts (detects shooter state, checks goal tending first), loose ball pursuit. Mark nearest opponent when off-ball defense.
+- **AI difficulty system** — 3 levels (Easy/Medium/Hard). Easy: halved action probabilities, 20-frame reaction delay. Medium: baseline probabilities, 10-frame reaction delay. Hard: 1.5x probabilities, 3-frame near-instant reactions, turbo usage when chasing.
+- **AI state management** — Per-player AIState struct with action cooldowns (shoot=30f, pass=20f, steal=40f, block=30f), drive reassessment timer (15f), reaction delay, turbo intent. Prevents jittery decision-making.
+- **Teammate AI** — Human's teammate runs off-ball offense (positioning for passes) or defensive marking when opponent has possession. Player switching (C key) toggles AI active/inactive on swap.
+- **AI integration** — ai_update_all called each frame for all non-human players. AI uses same game functions as human input (player_apply_input, shoot_ball, dunk_start, collision_try_steal/block, ball_launch for passes). Rim targeting accounts for team direction (home shoots right, away shoots left).
+- 18 new test assertions (76 total): AI init/active/difficulty, nearest opponent/teammate finding, offensive shoot-or-dunk near rim, defensive chasing, off-ball movement, inactive AI no-op, difficulty probability scaling, direction computation, player openness detection
+
+### Project stats
+- 14 source modules, 1 test file
+- 4654 lines of Cyrius source + 1120 lines of tests = 5774 total
+
 ## [0.4.0] — 2026-04-14
 
 ### Added

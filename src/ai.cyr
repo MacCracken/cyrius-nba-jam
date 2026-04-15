@@ -1,0 +1,723 @@
+// cyrius-nba-jam — ai.cyr
+// Drone AI: offensive/defensive decisions for CPU-controlled players.
+//
+// Reference: DRONE.ASM + DRONE2.ASM (~4,000 lines TMS34010)
+// Original uses decision tables keyed on distance, stat, turbo, clock.
+// We implement the same decision tree with fresh Cyrius code.
+//
+// AI modes:
+//   OFFENSE (team has possession):
+//     Ball handler: shoot / dunk / pass / drive toward basket
+//     Off-ball:     position for pass reception / alley-oop
+//   DEFENSE (opponent has possession):
+//     Near ball handler: attempt steal, contest shots
+//     Off-ball:          mark nearest opponent, position between them and basket
+//
+// Difficulty levels scale decision quality and reaction timing.
+
+// --- AI constants ---
+
+// Decision cooldowns (frames) — prevent spamming actions
+var AI_SHOOT_COOLDOWN = 30;        // min frames between shot decisions
+var AI_PASS_COOLDOWN = 20;
+var AI_STEAL_COOLDOWN = 40;
+var AI_BLOCK_COOLDOWN = 30;
+var AI_DRIVE_REASSESS = 15;        // re-evaluate drive direction every N frames
+
+// Distances (fixed-point 16.16)
+var AI_CLOSE_SHOT_RANGE = 589824;       // 9.0 — prefer shot inside this
+var AI_THREE_POINT_RANGE = 917504;      // 14.0 — beyond this = three-pointer
+var AI_STEAL_ATTEMPT_RANGE = 327680;    // 5.0 — close enough to try steal
+var AI_BLOCK_ATTEMPT_RANGE = 393216;    // 6.0 — close enough to try block
+var AI_PASS_OPEN_DIST = 524288;         // 8.0 — teammate "open" if this far from defender
+var AI_ALLEY_OOP_ZONE = 655360;         // 10.0 — receiver near rim for lob
+
+// Drive constants
+var AI_DRIVE_SPEED = 1;                 // input magnitude when driving
+
+// Difficulty levels
+var AI_DIFF_EASY = 0;
+var AI_DIFF_MEDIUM = 1;
+var AI_DIFF_HARD = 2;
+
+// --- AI state per player ---
+// Tracks cooldowns and current intention to prevent jittery behavior.
+
+struct AIState {
+    active;             // 0: 1 if this player is AI-controlled
+    shoot_cooldown;     // 1: frames until can consider shooting again
+    pass_cooldown;      // 2: frames until can consider passing
+    steal_cooldown;     // 3: frames until can try steal again
+    block_cooldown;     // 4: frames until can try block again
+    drive_timer;        // 5: frames until re-assess drive direction
+    drive_dx;           // 6: current drive input dx (-1, 0, 1)
+    drive_dy;           // 7: current drive input dy (-1, 0, 1)
+    difficulty;         // 8: AI_DIFF_EASY/MEDIUM/HARD
+    reaction_timer;     // 9: frames of delay before reacting to events
+    use_turbo;          // 10: 1 if AI wants turbo this frame
+}
+
+var _ai_states[4];      // one per player (pointers)
+var _ai_init_done = 0;
+
+// --- AI RNG ---
+
+var _ai_rng = 77777;
+
+fn ai_rng() {
+    _ai_rng = _ai_rng * 6364136223846793005 + 1442695040888963407;
+    var r = (_ai_rng >> 33) & 2147483647;
+    if (r < 0) { r = 0 - r; }
+    return r;
+}
+
+fn ai_rng_range(max) {
+    if (max <= 0) { return 0; }
+    var r = ai_rng();
+    return r - (r / max) * max;
+}
+
+fn asr_ai(v, n) {
+    if (v < 0) { return 0 - ((0 - v) >> n); }
+    return v >> n;
+}
+
+// --- Distance helper (pre-shifted, same as collision.cyr) ---
+
+fn ai_dist_sq(x1, y1, x2, y2) {
+    var dx = asr_ai(x2 - x1, 4);
+    var dy = asr_ai(y2 - y1, 4);
+    return dx * dx + dy * dy;
+}
+
+fn ai_radius_sq(r) {
+    var rs = asr_ai(r, 4);
+    return rs * rs;
+}
+
+// --- Init ---
+
+fn ai_init() {
+    if (_ai_init_done == 1) { return; }
+    var i = 0;
+    while (i < 4) {
+        var s = AIState {
+            0,          // active (set by game logic)
+            0,          // shoot_cooldown
+            0,          // pass_cooldown
+            0,          // steal_cooldown
+            0,          // block_cooldown
+            0,          // drive_timer
+            0, 0,       // drive_dx, drive_dy
+            AI_DIFF_MEDIUM,  // difficulty
+            0,          // reaction_timer
+            0           // use_turbo
+        };
+        store64(&_ai_states + i * 8, &s);
+        i = i + 1;
+    }
+    _ai_init_done = 1;
+}
+
+fn ai_set_active(player_index, is_active) {
+    ai_init();
+    var s: *i64 = load64(&_ai_states + player_index * 8);
+    *s = is_active;
+}
+
+fn ai_set_difficulty(player_index, diff) {
+    ai_init();
+    var s: *i64 = load64(&_ai_states + player_index * 8);
+    *(s + 8) = diff;
+}
+
+fn ai_is_active(player_index) {
+    ai_init();
+    var s: *i64 = load64(&_ai_states + player_index * 8);
+    return *s;
+}
+
+// --- Tick cooldowns ---
+
+fn ai_tick_cooldowns(ai_state) {
+    var s: *i64 = ai_state;
+    if (*(s + 1) > 0) { *(s + 1) = *(s + 1) - 1; }
+    if (*(s + 2) > 0) { *(s + 2) = *(s + 2) - 1; }
+    if (*(s + 3) > 0) { *(s + 3) = *(s + 3) - 1; }
+    if (*(s + 4) > 0) { *(s + 4) = *(s + 4) - 1; }
+    if (*(s + 5) > 0) { *(s + 5) = *(s + 5) - 1; }
+    if (*(s + 9) > 0) { *(s + 9) = *(s + 9) - 1; }
+}
+
+// --- Find nearest opponent ---
+
+fn ai_find_nearest_opponent(player, players, player_count) {
+    var pp: *i64 = player;
+    var my_team = *(pp + 7);
+    var px = *pp;
+    var py = *(pp + 1);
+
+    var nearest = 0;
+    var nearest_d2 = 2147483647;    // max int
+
+    var i = 0;
+    while (i < player_count) {
+        var other = load64(players + i * 8);
+        var op: *i64 = other;
+        if (*(op + 7) != my_team) {
+            var d2 = ai_dist_sq(px, py, *op, *(op + 1));
+            if (d2 < nearest_d2) {
+                nearest_d2 = d2;
+                nearest = other;
+            }
+        }
+        i = i + 1;
+    }
+    return nearest;
+}
+
+// --- Find teammate ---
+
+fn ai_find_teammate(player, players, player_count) {
+    var pp: *i64 = player;
+    var my_team = *(pp + 7);
+    var my_index = *(pp + 8);
+
+    var i = 0;
+    while (i < player_count) {
+        var other = load64(players + i * 8);
+        var op: *i64 = other;
+        if (*(op + 7) == my_team) {
+            if (*(op + 8) != my_index) {
+                return other;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// --- Find ball handler ---
+
+fn ai_find_ball_handler(players, player_count) {
+    var i = 0;
+    while (i < player_count) {
+        var p = load64(players + i * 8);
+        var pp: *i64 = p;
+        if (*(pp + 9) == 1) { return p; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// --- Check if a player is "open" (far from all defenders) ---
+
+fn ai_is_player_open(player, players, player_count) {
+    var pp: *i64 = player;
+    var my_team = *(pp + 7);
+    var px = *pp;
+    var py = *(pp + 1);
+
+    var open_r2 = ai_radius_sq(AI_PASS_OPEN_DIST);
+
+    var i = 0;
+    while (i < player_count) {
+        var other = load64(players + i * 8);
+        var op: *i64 = other;
+        if (*(op + 7) != my_team) {
+            var d2 = ai_dist_sq(px, py, *op, *(op + 1));
+            if (d2 < open_r2) {
+                return 0;   // defender nearby — not open
+            }
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// --- Compute direction toward a target ---
+// Returns dx, dy as -1/0/1 movement inputs via globals.
+
+var _ai_move_dx = 0;
+var _ai_move_dy = 0;
+
+fn ai_direction_to(from_x, from_y, to_x, to_y) {
+    var dx = to_x - from_x;
+    var dy = to_y - from_y;
+
+    _ai_move_dx = 0;
+    _ai_move_dy = 0;
+
+    if (dx > 65536) { _ai_move_dx = 1; }         // > 1.0
+    elif (dx < (0 - 65536)) { _ai_move_dx = -1; }
+
+    if (dy > 65536) { _ai_move_dy = 1; }
+    elif (dy < (0 - 65536)) { _ai_move_dy = -1; }
+}
+
+// --- Difficulty-adjusted probability ---
+// Easy: halve probabilities. Medium: as-is. Hard: 1.5x.
+
+fn ai_adjust_prob(base_prob, difficulty) {
+    if (difficulty == AI_DIFF_EASY) {
+        return base_prob / 2;
+    }
+    if (difficulty == AI_DIFF_HARD) {
+        return base_prob + base_prob / 2;
+    }
+    return base_prob;
+}
+
+// --- Difficulty-adjusted reaction delay ---
+
+fn ai_reaction_delay(difficulty) {
+    if (difficulty == AI_DIFF_EASY) { return 20; }     // 0.33s delay
+    if (difficulty == AI_DIFF_HARD) { return 3; }      // near-instant
+    return 10;                                          // medium: 0.17s
+}
+
+// ========================================================
+// OFFENSIVE AI — ball handler
+// ========================================================
+
+// Returns: action taken (for debugging/testing)
+// 0 = no action (drive/dribble), 1 = shoot, 2 = dunk, 3 = pass
+
+fn ai_offense_ball_handler(player, player_index, ai_state, ball,
+                            rim_x, rim_y, players, player_count) {
+    var pp: *i64 = player;
+    var s: *i64 = ai_state;
+    var px = *pp;
+    var py = *(pp + 1);
+    var state = *(pp + 4);
+    var difficulty = *(s + 8);
+
+    // Don't act during committed animations
+    if (player_is_committed(state) == 1) {
+        if (*(pp + 6) > 0) { return 0; }
+    }
+
+    var d2_rim = ai_dist_sq(px, py, rim_x, rim_y);
+
+    // --- Priority 1: Dunk if in range ---
+    if (can_dunk(player, rim_x, rim_y) == 1) {
+        if (*(s + 1) == 0) {    // shoot cooldown expired
+            // Higher difficulty = more likely to dunk immediately
+            var dunk_prob = ai_adjust_prob(80, difficulty);
+            if (ai_rng_range(100) < dunk_prob) {
+                dunk_start(player, player_index, ball, rim_x, rim_y);
+                *(s + 1) = AI_SHOOT_COOLDOWN;
+                return 2;
+            }
+        }
+    }
+
+    // --- Priority 2: Shoot if in good position ---
+    if (*(s + 1) == 0) {
+        var shooting_stat = *(pp + 19);
+        var on_fire = *(pp + 10);
+
+        // Close range: always consider shooting
+        var close_r2 = ai_radius_sq(AI_CLOSE_SHOT_RANGE);
+        var in_close = 0;
+        if (d2_rim < close_r2) { in_close = 1; }
+
+        // Three-point range: only shoot if good shooter
+        var three_r2 = ai_radius_sq(AI_THREE_POINT_RANGE);
+        var beyond_three = 0;
+        if (d2_rim > three_r2) { beyond_three = 1; }
+
+        var should_shoot = 0;
+
+        if (on_fire == 1) {
+            // On fire: shoot from anywhere with high probability
+            should_shoot = 90;
+        } elif (in_close == 1) {
+            // Close range: base on shooting stat
+            should_shoot = shooting_stat * 7;
+        } elif (beyond_three == 0) {
+            // Mid-range
+            should_shoot = shooting_stat * 5;
+        } else {
+            // Three-pointer: only good shooters
+            if (shooting_stat >= 7) {
+                should_shoot = shooting_stat * 4;
+            }
+        }
+
+        should_shoot = ai_adjust_prob(should_shoot, difficulty);
+
+        if (ai_rng_range(100) < should_shoot) {
+            player_try_transition(player, PS_SHOOT);
+            shoot_ball(player, ball, rim_x, rim_y);
+            *(s + 1) = AI_SHOOT_COOLDOWN;
+            return 1;
+        }
+    }
+
+    // --- Priority 3: Pass to open teammate ---
+    if (*(s + 2) == 0) {
+        var teammate = ai_find_teammate(player, players, player_count);
+        if (teammate != 0) {
+            var tp: *i64 = teammate;
+            var tm_open = ai_is_player_open(teammate, players, player_count);
+
+            // Check if teammate is in better position (closer to rim)
+            var tm_d2 = ai_dist_sq(*tp, *(tp + 1), rim_x, rim_y);
+            var tm_closer = 0;
+            if (tm_d2 < d2_rim) { tm_closer = 1; }
+
+            var pass_prob = 0;
+            var pass_stat = *(pp + 23);
+
+            if (tm_open == 1) {
+                if (tm_closer == 1) {
+                    // Open teammate closer to rim: high pass probability
+                    pass_prob = ai_adjust_prob(pass_stat * 8, difficulty);
+                } else {
+                    pass_prob = ai_adjust_prob(pass_stat * 4, difficulty);
+                }
+            }
+
+            // Pressure: if defender is close, increase pass urgency
+            var nearest_def = ai_find_nearest_opponent(player, players, player_count);
+            if (nearest_def != 0) {
+                var dp: *i64 = nearest_def;
+                var def_d2 = ai_dist_sq(px, py, *dp, *(dp + 1));
+                var pressure_r2 = ai_radius_sq(327680);    // 5.0
+                if (def_d2 < pressure_r2) {
+                    pass_prob = pass_prob + 20;     // more likely to pass under pressure
+                }
+            }
+
+            if (ai_rng_range(100) < pass_prob) {
+                // Execute pass (same logic as main.cyr input_pass)
+                player_try_transition(player, PS_PASS);
+                ball_release_from(ball, player);
+
+                // Lead pass
+                var tx = *tp + *(tp + 2) * 8;
+                var ty = *(tp + 1) + *(tp + 3) * 8;
+                var pass_speed = 20 - pass_stat;
+                if (pass_speed < 8) { pass_speed = 8; }
+
+                var vx = (tx - px) / pass_speed;
+                var vy = (ty - py) / pass_speed;
+                ball_launch(ball, vx, vy, 13107);
+
+                *(s + 2) = AI_PASS_COOLDOWN;
+                return 3;
+            }
+        }
+    }
+
+    // --- Priority 4: Drive toward basket ---
+    if (*(s + 5) == 0) {
+        // Recalculate drive direction
+        ai_direction_to(px, py, rim_x, rim_y);
+        *(s + 6) = _ai_move_dx;
+        *(s + 7) = _ai_move_dy;
+        *(s + 5) = AI_DRIVE_REASSESS;
+
+        // Use turbo when driving and have enough
+        *(s + 10) = 0;
+        if (*(pp + 11) > 30) {
+            if (difficulty >= AI_DIFF_MEDIUM) {
+                *(s + 10) = 1;
+            }
+        }
+    }
+
+    // Apply drive movement
+    player_apply_input(player, *(s + 6), *(s + 7), *(s + 10));
+    return 0;
+}
+
+// ========================================================
+// OFFENSIVE AI — off-ball teammate
+// ========================================================
+
+fn ai_offense_off_ball(player, ai_state, rim_x, rim_y, players, player_count) {
+    var pp: *i64 = player;
+    var s: *i64 = ai_state;
+    var px = *pp;
+    var py = *(pp + 1);
+
+    // Position for a pass: move toward an open spot near the basket
+    // but not on top of the ball handler
+
+    var handler = ai_find_ball_handler(players, player_count);
+
+    // Target: midway between current position and rim, offset to the side
+    var target_x = rim_x;
+    var target_y = rim_y;
+
+    if (handler != 0) {
+        var hp: *i64 = handler;
+        var hx = *hp;
+        var hy = *(hp + 1);
+
+        // Go to the opposite side of the court from the handler
+        if (hy < rim_y) {
+            target_y = rim_y + 327680;     // +5.0 below rim
+        } else {
+            target_y = rim_y - 327680;     // -5.0 above rim
+        }
+
+        // Stay at mid-range for pass reception
+        var mid_x = (hx + rim_x) / 2;
+        target_x = mid_x;
+    }
+
+    // Occasionally move toward alley-oop position (near rim)
+    if (ai_rng_range(100) < 10) {
+        target_x = rim_x;
+        target_y = rim_y;
+    }
+
+    ai_direction_to(px, py, target_x, target_y);
+    player_apply_input(player, _ai_move_dx, _ai_move_dy, 0);
+}
+
+// ========================================================
+// DEFENSIVE AI
+// ========================================================
+
+// Returns: action taken
+// 0 = positioning, 1 = steal attempt, 2 = block attempt
+
+fn ai_defense(player, player_index, ai_state, ball, game,
+              rim_x, rim_y, players, player_count) {
+    var pp: *i64 = player;
+    var s: *i64 = ai_state;
+    var px = *pp;
+    var py = *(pp + 1);
+    var state = *(pp + 4);
+    var difficulty = *(s + 8);
+
+    // Don't act during committed animations
+    if (player_is_committed(state) == 1) {
+        if (*(pp + 6) > 0) { return 0; }
+    }
+
+    // Find the ball handler (opponent with ball)
+    var handler = ai_find_ball_handler(players, player_count);
+
+    if (handler != 0) {
+        var hp: *i64 = handler;
+        var hx = *hp;
+        var hy = *(hp + 1);
+        var handler_state = *(hp + 4);
+        var handler_team = *(hp + 7);
+
+        // Only defend against opponents
+        if (handler_team == *(pp + 7)) {
+            // Ball handler is teammate — position defensively anyway
+            return ai_defense_position(player, ai_state, rim_x, rim_y,
+                                       players, player_count);
+        }
+
+        var d2_handler = ai_dist_sq(px, py, hx, hy);
+
+        // --- Try block if handler is shooting ---
+        if (handler_state == PS_SHOOT) {
+            if (*(s + 4) == 0) {
+                var block_r2 = ai_radius_sq(AI_BLOCK_ATTEMPT_RANGE);
+                if (d2_handler <= block_r2) {
+                    // Check goal tending first
+                    var gt = is_goal_tending(ball);
+                    if (gt == 0) {
+                        var block_prob = ai_adjust_prob(70, difficulty);
+                        if (ai_rng_range(100) < block_prob) {
+                            collision_try_block(player, handler, ball);
+                            *(s + 4) = AI_BLOCK_COOLDOWN;
+                            return 2;
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Try steal if close to ball handler ---
+        if (*(s + 3) == 0) {
+            var steal_r2 = ai_radius_sq(AI_STEAL_ATTEMPT_RANGE);
+            if (d2_handler <= steal_r2) {
+                if (*(hp + 9) == 1) {   // handler has ball
+                    var steal_prob = ai_adjust_prob(40, difficulty);
+                    if (ai_rng_range(100) < steal_prob) {
+                        collision_try_steal(player, handler, ball);
+                        *(s + 3) = AI_STEAL_COOLDOWN;
+                        return 1;
+                    }
+                }
+            }
+        }
+
+        // --- Chase ball handler ---
+        // Position between handler and our basket
+        var def_rim_x = rim_x;   // the rim we're defending
+        var def_rim_y = rim_y;
+
+        // Target: between handler and rim, biased toward handler
+        var target_x = (hx * 3 + def_rim_x) / 4;
+        var target_y = (hy * 3 + def_rim_y) / 4;
+
+        ai_direction_to(px, py, target_x, target_y);
+
+        // Use turbo to chase on hard difficulty
+        var use_turbo = 0;
+        if (difficulty >= AI_DIFF_HARD) {
+            if (*(pp + 11) > 20) { use_turbo = 1; }
+        }
+
+        player_apply_input(player, _ai_move_dx, _ai_move_dy, use_turbo);
+        return 0;
+    }
+
+    // No ball handler found — ball is loose, go get it
+    return ai_chase_loose_ball(player, ai_state, ball);
+}
+
+// --- Defensive positioning when not near ball handler ---
+
+fn ai_defense_position(player, ai_state, rim_x, rim_y, players, player_count) {
+    var pp: *i64 = player;
+    var px = *pp;
+    var py = *(pp + 1);
+
+    // Mark nearest opponent
+    var mark_target = ai_find_nearest_opponent(player, players, player_count);
+    if (mark_target == 0) { return 0; }
+
+    var mp: *i64 = mark_target;
+    var mx = *mp;
+    var my = *(mp + 1);
+
+    // Position between the marked player and our basket
+    var target_x = (mx + rim_x) / 2;
+    var target_y = (my + rim_y) / 2;
+
+    ai_direction_to(px, py, target_x, target_y);
+    player_apply_input(player, _ai_move_dx, _ai_move_dy, 0);
+    return 0;
+}
+
+// --- Chase a loose ball ---
+
+fn ai_chase_loose_ball(player, ai_state, ball) {
+    var pp: *i64 = player;
+    var bp: *i64 = ball;
+    var ball_state = *(bp + 6);
+
+    // Only chase if ball is loose (FLIGHT/BOUNCE/DEAD with no holder)
+    if (ball_state == BALL_HELD) { return 0; }
+    if (ball_state == BALL_SCORED) { return 0; }
+
+    var bx = *bp;
+    var by = *(bp + 1);
+
+    ai_direction_to(*pp, *(pp + 1), bx, by);
+    player_apply_input(player, _ai_move_dx, _ai_move_dy, 1);  // turbo to chase
+    return 0;
+}
+
+// ========================================================
+// MAIN AI UPDATE — called each frame per AI player
+// ========================================================
+
+// Returns the action taken (for testing):
+// 0 = movement/positioning, 1 = shoot, 2 = dunk, 3 = pass,
+// 4 = steal, 5 = block
+
+fn ai_update_player(player, player_index, ball, game,
+                     rim_x, rim_y, players, player_count) {
+    ai_init();
+
+    var ai_state = load64(&_ai_states + player_index * 8);
+    var s: *i64 = ai_state;
+
+    // Skip if not AI-controlled
+    if (*s != 1) { return 0; }
+
+    // Tick cooldowns
+    ai_tick_cooldowns(ai_state);
+
+    // Check reaction delay
+    if (*(s + 9) > 0) { return 0; }
+
+    var pp: *i64 = player;
+    var my_team = *(pp + 7);
+
+    // Determine offense vs defense based on possession
+    var gp: *i64 = game;
+    var possession = *(gp + 6);
+
+    if (possession == my_team) {
+        // OFFENSE
+        if (*(pp + 9) == 1) {
+            // I have the ball — handler AI
+            var action = ai_offense_ball_handler(player, player_index, ai_state,
+                                                  ball, rim_x, rim_y,
+                                                  players, player_count);
+            if (action == 1) { return 1; }      // shoot
+            if (action == 2) { return 2; }      // dunk
+            if (action == 3) { return 3; }      // pass
+            return 0;
+        } else {
+            // Off-ball teammate positioning
+            ai_offense_off_ball(player, ai_state, rim_x, rim_y,
+                               players, player_count);
+            return 0;
+        }
+    } else {
+        // DEFENSE
+        var action = ai_defense(player, player_index, ai_state, ball, game,
+                                rim_x, rim_y, players, player_count);
+        if (action == 1) { return 4; }      // steal
+        if (action == 2) { return 5; }      // block
+        return 0;
+    }
+}
+
+// --- Convenience: update all AI players ---
+
+fn ai_update_all(players, player_count, ball, game, home_rim_x, home_rim_y,
+                  away_rim_x, away_rim_y) {
+    var i = 0;
+    while (i < player_count) {
+        var p = load64(players + i * 8);
+        var pp: *i64 = p;
+        var team = *(pp + 7);
+
+        // Determine which rim this player attacks
+        var rim_x = away_rim_x;
+        var rim_y = away_rim_y;
+        if (team == TEAM_AWAY) {
+            rim_x = home_rim_x;
+            rim_y = home_rim_y;
+        }
+
+        // Determine which rim this player defends
+        var def_rim_x = home_rim_x;
+        var def_rim_y = home_rim_y;
+        if (team == TEAM_AWAY) {
+            def_rim_x = away_rim_x;
+            def_rim_y = away_rim_y;
+        }
+
+        // For offense: use attacking rim. For defense: use defending rim.
+        var gp: *i64 = game;
+        var possession = *(gp + 6);
+        var use_rim_x = rim_x;
+        var use_rim_y = rim_y;
+        if (possession != team) {
+            // Defending: position relative to our own basket
+            use_rim_x = def_rim_x;
+            use_rim_y = def_rim_y;
+        }
+
+        ai_update_player(p, i, ball, game, use_rim_x, use_rim_y,
+                          players, player_count);
+        i = i + 1;
+    }
+}

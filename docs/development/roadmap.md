@@ -1,6 +1,6 @@
 # cyrius-nba-jam Development Roadmap
 
-> **Status**: v0.1.0 implemented | **Last Updated**: 2026-04-14
+> **Status**: v0.4.0 implemented | **Last Updated**: 2026-04-15
 
 ---
 
@@ -83,12 +83,15 @@ The game plays back.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | ai.cyr — offensive decisions (shoot/pass/drive/dunk) | Not started | From DRONE.ASM logic |
-| 2 | Defensive AI — mark player, contest shots, steal | Not started | From DRONE2.ASM logic |
-| 3 | AI difficulty scaling — attribute modifiers per difficulty | Not started | |
-| 4 | Teammate AI when not player-controlled | Not started | |
+| 1 | ai.cyr — offensive decisions (shoot/pass/drive/dunk) | Done | 723 lines. Ball handler AI: dunk priority near rim, stat-driven shot selection, lead pass to open teammates, drive toward basket. Off-ball: positional movement for pass reception |
+| 2 | Defensive AI — mark player, contest shots, steal | Done | Chase ball handler, position between handler and basket, steal/block attempts with cooldowns, goal tending check before blocks, loose ball pursuit, mark nearest opponent |
+| 3 | AI difficulty scaling — attribute modifiers per difficulty | Done | 3 levels: Easy (halved probs, 20f delay), Medium (baseline, 10f delay), Hard (1.5x probs, 3f delay, turbo chase) |
+| 4 | Teammate AI when not player-controlled | Done | Off-ball offense positioning, defensive marking. C key switches human control + toggles AI active state |
 
-**Exit criteria**: Full 2-on-2 game against AI opponents. Competitive, not trivial.
+**Lines**: 4654 source + 1120 test = 5774 total across 14 modules.
+**Tests**: 76 assertions (18 new: AI init, decisions, movement, difficulty, openness).
+
+**Exit criteria**: Full 2-on-2 game against AI opponents. Competitive, not trivial. ✓
 
 ## v0.6.0 — Fire and Game Flow
 
@@ -147,4 +150,4 @@ Team select, attract mode, audio.
 
 ---
 
-*Last Updated: 2026-04-14*
+*Last Updated: 2026-04-15*

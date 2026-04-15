@@ -1,6 +1,6 @@
 // cyrius-nba-jam — test suite
-// v0.4.0: Tests for physics, fire, stats, render, sprite, court,
-// player, ball, collision, shooting, dunks, game state, HUD.
+// v0.5.0: Tests for physics, fire, stats, render, sprite, court,
+// player, ball, collision, shooting, dunks, game state, HUD, AI.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -18,6 +18,7 @@ include "src/shoot.cyr"
 include "src/dunk.cyr"
 include "src/game.cyr"
 include "src/hud.cyr"
+include "src/ai.cyr"
 
 // ========= Ball physics (from v0.1.0) =========
 
@@ -709,6 +710,267 @@ fn test_turbo_fire_infinite() {
     return 0;
 }
 
+// ========= AI =========
+
+fn test_ai_init_and_active() {
+    ai_init();
+    ai_set_active(0, 0);
+    ai_set_active(1, 1);
+    assert_eq(ai_is_active(0), 0, "player 0 not AI");
+    assert_eq(ai_is_active(1), 1, "player 1 is AI");
+    return 0;
+}
+
+fn test_ai_difficulty_setting() {
+    ai_init();
+    ai_set_difficulty(2, AI_DIFF_HARD);
+    var s: *i64 = load64(&_ai_states + 2 * 8);
+    assert_eq(*(s + 8), AI_DIFF_HARD, "difficulty set to hard");
+    return 0;
+}
+
+fn test_ai_find_nearest_opponent() {
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);      // home at (100, 130)
+    var p2 = player_new(TEAM_AWAY, 0, 6619136, 8519680);      // away at (101, 130) — close
+    var p3 = player_new(TEAM_AWAY, 1, 14417920, 8519680);     // away at (220, 130) — far
+    var players[3];
+    store64(&players, p1);
+    store64(&players + 8, p2);
+    store64(&players + 16, p3);
+
+    var nearest = ai_find_nearest_opponent(p1, &players, 3);
+    assert_eq(nearest, p2, "nearest opponent is the close one");
+    return 0;
+}
+
+fn test_ai_find_teammate() {
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var p2 = player_new(TEAM_HOME, 1, 6553600, 11141120);
+    var p3 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
+    var players[3];
+    store64(&players, p1);
+    store64(&players + 8, p2);
+    store64(&players + 16, p3);
+
+    var tm = ai_find_teammate(p1, &players, 3);
+    assert_eq(tm, p2, "finds home teammate");
+    return 0;
+}
+
+fn test_ai_ball_handler_offense_shoots_close() {
+    // Ball handler very close to rim should eventually shoot or dunk
+    ai_init();
+    ai_set_active(0, 1);
+    ai_set_difficulty(0, AI_DIFF_HARD);
+
+    var p1 = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 327680, RIM_Y);  // near rim
+    player_set_stats(p1, 7, 5, 9, 8, 4, 5, 6, 7, 5);  // good shooter + dunker
+    var pp: *i64 = p1;
+    *(pp + 9) = 1;     // has ball
+
+    var p2 = player_new(TEAM_HOME, 1, 6553600, 11141120);
+    var p3 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
+    var p4 = player_new(TEAM_AWAY, 1, 14417920, 11141120);
+    var players[4];
+    store64(&players, p1);
+    store64(&players + 8, p2);
+    store64(&players + 16, p3);
+    store64(&players + 24, p4);
+
+    var b = ball_new(RIM_RIGHT_X - 327680, RIM_Y);
+    ball_give_to(b, p1);
+
+    var g = game_new();
+    var gp: *i64 = g;
+    *gp = STATE_PLAYING;
+    *(gp + 6) = TEAM_HOME;   // home has possession
+
+    // Run AI several times — with high stats near rim, should act
+    _ai_rng = 42;
+    var shot_or_dunk = 0;
+    var i = 0;
+    while (i < 50) {
+        // Reset state each attempt to avoid cooldown blocking
+        ball_give_to(b, p1);
+        *(pp + 4) = PS_IDLE;
+        *(pp + 6) = 0;
+        var s: *i64 = load64(&_ai_states);
+        *(s + 1) = 0;  // reset shoot cooldown
+
+        var action = ai_update_player(p1, 0, b, g, RIM_RIGHT_X, RIM_Y,
+                                       &players, 4);
+        if (action == 1) { shot_or_dunk = shot_or_dunk + 1; }
+        if (action == 2) { shot_or_dunk = shot_or_dunk + 1; }
+        i = i + 1;
+    }
+    assert(shot_or_dunk > 0, "AI shoots or dunks when close to rim");
+    return 0;
+}
+
+fn test_ai_defense_chases_handler() {
+    // Defensive AI should move toward the ball handler
+    ai_init();
+    ai_set_active(0, 1);
+    ai_set_difficulty(0, AI_DIFF_MEDIUM);
+
+    // Defender far from handler
+    var defender = player_new(TEAM_AWAY, 0, 14417920, 11141120);  // (220, 170)
+    player_set_stats(defender, 7, 5, 5, 5, 7, 7, 5, 5, 5);
+
+    // Handler with ball at (100, 130)
+    var handler = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var hp: *i64 = handler;
+    *(hp + 9) = 1;
+
+    var p3 = player_new(TEAM_HOME, 1, 6553600, 11141120);
+    var p4 = player_new(TEAM_AWAY, 1, 14417920, 8519680);
+
+    var players[4];
+    store64(&players, defender);
+    store64(&players + 8, handler);
+    store64(&players + 16, p3);
+    store64(&players + 24, p4);
+
+    var b = ball_new(6553600, 8519680);
+    ball_give_to(b, handler);
+
+    var g = game_new();
+    var gp: *i64 = g;
+    *gp = STATE_PLAYING;
+    *(gp + 6) = TEAM_HOME;   // home has possession → away defends
+
+    var dp: *i64 = defender;
+    var initial_x = *dp;
+
+    // Run AI for 30 frames
+    var i = 0;
+    while (i < 30) {
+        ai_update_player(defender, 0, b, g, RIM_LEFT_X, RIM_Y,
+                          &players, 4);
+        player_update(defender);
+        i = i + 1;
+    }
+
+    // Defender should have moved toward handler (leftward, lower x)
+    assert(*dp < initial_x, "defensive AI moves toward ball handler");
+    return 0;
+}
+
+fn test_ai_off_ball_moves() {
+    // Off-ball teammate should move (not stay frozen)
+    ai_init();
+    ai_set_active(1, 1);
+
+    var handler = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var hp: *i64 = handler;
+    *(hp + 9) = 1;
+
+    var teammate = player_new(TEAM_HOME, 1, 6553600, 11141120);  // (100, 170)
+    var p3 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
+    var p4 = player_new(TEAM_AWAY, 1, 14417920, 11141120);
+
+    var players[4];
+    store64(&players, handler);
+    store64(&players + 8, teammate);
+    store64(&players + 16, p3);
+    store64(&players + 24, p4);
+
+    var b = ball_new(6553600, 8519680);
+    ball_give_to(b, handler);
+
+    var g = game_new();
+    var gp: *i64 = g;
+    *gp = STATE_PLAYING;
+    *(gp + 6) = TEAM_HOME;
+
+    var tp: *i64 = teammate;
+    var initial_x = *tp;
+    var initial_y = *(tp + 1);
+
+    var i = 0;
+    while (i < 30) {
+        ai_update_player(teammate, 1, b, g, RIM_RIGHT_X, RIM_Y,
+                          &players, 4);
+        player_update(teammate);
+        i = i + 1;
+    }
+
+    // Teammate should have moved somewhere
+    var moved_x = *tp - initial_x;
+    if (moved_x < 0) { moved_x = 0 - moved_x; }
+    var moved_y = *(tp + 1) - initial_y;
+    if (moved_y < 0) { moved_y = 0 - moved_y; }
+    assert(moved_x + moved_y > 0, "off-ball AI teammate moves");
+    return 0;
+}
+
+fn test_ai_inactive_does_nothing() {
+    ai_init();
+    ai_set_active(0, 0);   // not AI controlled
+
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var pp: *i64 = p;
+    *(pp + 9) = 1;
+
+    var b = ball_new(6553600, 8519680);
+    var g = game_new();
+    var gp: *i64 = g;
+    *gp = STATE_PLAYING;
+    *(gp + 6) = TEAM_HOME;
+
+    var players[1];
+    store64(&players, p);
+
+    var action = ai_update_player(p, 0, b, g, RIM_RIGHT_X, RIM_Y, &players, 1);
+    assert_eq(action, 0, "inactive AI takes no action");
+    return 0;
+}
+
+fn test_ai_adjust_prob_difficulty() {
+    var easy = ai_adjust_prob(60, AI_DIFF_EASY);
+    var medium = ai_adjust_prob(60, AI_DIFF_MEDIUM);
+    var hard = ai_adjust_prob(60, AI_DIFF_HARD);
+
+    assert_eq(easy, 30, "easy halves probability");
+    assert_eq(medium, 60, "medium keeps probability");
+    assert_eq(hard, 90, "hard multiplies probability 1.5x");
+    return 0;
+}
+
+fn test_ai_direction_to() {
+    // Target to the right and below
+    ai_direction_to(0, 0, 655360, 655360);    // (0,0) -> (10, 10)
+    assert_eq(_ai_move_dx, 1, "direction dx = right");
+    assert_eq(_ai_move_dy, 1, "direction dy = down");
+
+    // Target to the left
+    ai_direction_to(655360, 0, 0, 0);         // (10, 0) -> (0, 0)
+    assert_eq(_ai_move_dx, -1, "direction dx = left");
+    assert_eq(_ai_move_dy, 0, "direction dy = none");
+    return 0;
+}
+
+fn test_ai_is_player_open() {
+    // Player far from all opponents → open
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);      // (100, 130)
+    var p2 = player_new(TEAM_AWAY, 0, 14417920, 8519680);     // (220, 130) — far away
+    var players[2];
+    store64(&players, p1);
+    store64(&players + 8, p2);
+
+    assert_eq(ai_is_player_open(p1, &players, 2), 1, "player open when defenders far");
+
+    // Player close to opponent → not open
+    var p3 = player_new(TEAM_AWAY, 1, 6619136, 8519680);      // (101, 130) — very close
+    var players2[3];
+    store64(&players2, p1);
+    store64(&players2 + 8, p2);
+    store64(&players2 + 16, p3);
+
+    assert_eq(ai_is_player_open(p1, &players2, 3), 0, "player not open when defender close");
+    return 0;
+}
+
 // ========= Integration =========
 
 fn test_court_render_pixels() {
@@ -833,6 +1095,19 @@ fn main() {
     // Turbo
     test_turbo_drain();
     test_turbo_fire_infinite();
+
+    // AI
+    test_ai_init_and_active();
+    test_ai_difficulty_setting();
+    test_ai_find_nearest_opponent();
+    test_ai_find_teammate();
+    test_ai_ball_handler_offense_shoots_close();
+    test_ai_defense_chases_handler();
+    test_ai_off_ball_moves();
+    test_ai_inactive_does_nothing();
+    test_ai_adjust_prob_difficulty();
+    test_ai_direction_to();
+    test_ai_is_player_open();
 
     // Integration
     test_court_render_pixels();
