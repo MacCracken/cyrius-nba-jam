@@ -1,0 +1,89 @@
+// cyrius-nba-jam — test suite
+
+fn test_ball_arc() {
+    // Ball at x=160, y=100, velocity_y=-20 (upward)
+    // After gravity applied, velocity_y should decrease
+    // Parabolic arc: y' = y + vy; vy' = vy + gravity
+    var y = 100 * 65536;     // fixed-point
+    var vy = 0 - (20 * 65536);
+    var gravity = BALL_GRAVITY;
+
+    // Simulate 10 frames
+    var i = 0;
+    while (i < 10) {
+        y = y + vy;
+        vy = vy + gravity;
+        i = i + 1;
+    }
+
+    // Ball should have risen then started falling
+    // vy should be less negative (or positive) after 10 frames of gravity
+    assert(vy > (0 - (20 * 65536)), "gravity should slow upward velocity");
+    return 0;
+}
+
+fn test_fire_activation() {
+    // 3 consecutive baskets by same player → fire
+    var consecutive = 0;
+    var on_fire = 0;
+
+    // Simulate 3 baskets
+    consecutive = consecutive + 1;
+    consecutive = consecutive + 1;
+    consecutive = consecutive + 1;
+
+    if (consecutive >= FIRE_BASKETS_NEEDED) {
+        on_fire = 1;
+    }
+
+    assert(on_fire == 1, "3 consecutive baskets should activate fire");
+    return 0;
+}
+
+fn test_fire_extinguish() {
+    // Opponent scores → fire off
+    var on_fire = 1;
+    var opponent_scored = 1;
+
+    if (opponent_scored) {
+        on_fire = 0;
+    }
+
+    assert(on_fire == 0, "opponent scoring should extinguish fire");
+    return 0;
+}
+
+fn test_stat_range() {
+    // All stats should be 1-10
+    var stats[9];
+    stats[STAT_SPEED] = 7;
+    stats[STAT_POWER] = 4;
+    stats[STAT_SHOOTING] = 9;
+    stats[STAT_DUNKING] = 8;
+    stats[STAT_STEALING] = 3;
+    stats[STAT_BLOCKING] = 5;
+    stats[STAT_PASS] = 6;
+    stats[STAT_CLUTCH] = 10;
+    stats[STAT_REBOUND] = 5;
+
+    var i = 0;
+    while (i < STAT_COUNT) {
+        assert(stats[i] >= 1, "stat should be >= 1");
+        assert(stats[i] <= 10, "stat should be <= 10");
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn main() {
+    test_ball_arc();
+    test_fire_activation();
+    test_fire_extinguish();
+    test_stat_range();
+
+    println("cyrius-nba-jam: all tests passed");
+    return 0;
+}
+
+var exit_code = main();
+syscall(60, exit_code);

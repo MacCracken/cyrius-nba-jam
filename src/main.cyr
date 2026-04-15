@@ -1,0 +1,27 @@
+// cyrius-nba-jam — NBA Jam reimplementation
+// 2-on-2 arcade basketball. Software-rendered framebuffer. Zero deps.
+//
+// Reference: historicalsource/nba-jam (TMS34010 assembly)
+// All code is new Cyrius — the original is design reference only.
+
+// Game loop:
+//   1. Input
+//   2. Update (physics, AI, state machine)
+//   3. Render (court → shadows → players → ball → HUD)
+//   4. Present (write framebuffer to screen)
+//   5. Wait for frame timing (16.67ms target for 60fps)
+
+fn main() {
+    println("cyrius-nba-jam v0.1.0");
+    println("BOOMSHAKALAKA!");
+
+    // TODO: init framebuffer
+    // TODO: load assets (placeholder sprites)
+    // TODO: init game state
+    // TODO: game loop
+
+    return 0;
+}
+
+var exit_code = main();
+syscall(60, exit_code);
