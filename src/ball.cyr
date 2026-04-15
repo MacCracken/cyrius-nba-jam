@@ -1,0 +1,303 @@
+// cyrius-nba-jam — ball.cyr
+// Ball entity: position, velocity, physics, possession.
+// Semi-implicit Euler integration with 16.16 fixed-point.
+//
+// Reference: BB.ASM, BB2.ASM, BB3.ASM (~5,000 lines TMS34010)
+// Original tracks ball in 3D (x, y, z where z = height above court).
+// We do the same: x/y = court position, z = height above floor.
+//
+// Ball states:
+//   HELD     — attached to player, follows their position
+//   FLIGHT   — in the air (shot, pass, loose)
+//   BOUNCE   — bouncing off rim/backboard/floor
+//   SCORED   — passing through rim (brief state for scoring detection)
+//   DEAD     — out of bounds, waiting for inbound
+
+enum BallState {
+    BALL_HELD = 0;
+    BALL_FLIGHT = 1;
+    BALL_BOUNCE = 2;
+    BALL_SCORED = 3;
+    BALL_DEAD = 4;
+}
+
+// Ball physics constants (16.16 fixed-point)
+var BALL_FLOOR_Z = 0;                   // floor level
+var BALL_HOLD_Z = 327680;               // 5.0 — height when held by player
+var BALL_RIM_Z = 655360;                // 10.0 — rim height
+var BALL_FLOOR_RESTITUTION = 32768;     // 0.5 — floor bounce damping
+var BALL_RIM_RESTITUTION = 45875;       // 0.7 — rim bounce
+var BALL_BACKBOARD_RESTITUTION = 39322; // 0.6 — backboard bounce
+var BALL_AIR_DRAG = 65209;              // 0.995 — very slight air drag (mul factor)
+var BALL_SCORED_FRAMES = 20;            // frames to stay in SCORED state
+
+// Sprite dimensions
+var BALL_SPRITE_W = 8;
+var BALL_SPRITE_H = 8;
+
+// --- Ball struct ---
+// x, y = court position (fixed-point 16.16)
+// z = height above court (fixed-point 16.16)
+// vx, vy, vz = velocity components
+// state = BallState enum
+// holder = player pointer (or 0 if no holder)
+// scored_timer = countdown in SCORED state
+// last_shooter = player pointer who last shot
+
+struct Ball {
+    x; y; z;                // 0, 1, 2
+    vx; vy; vz;             // 3, 4, 5
+    state;                   // 6
+    holder;                  // 7
+    scored_timer;            // 8
+    last_shooter;            // 9
+    sprite_data;             // 10
+    sprite_w; sprite_h;      // 11, 12
+}
+
+fn ball_new(x, y) {
+    var b = Ball {
+        x, y, BALL_HOLD_Z,      // position at hold height
+        0, 0, 0,                  // velocity
+        BALL_HELD,                // state
+        0,                        // holder (set by game logic)
+        0,                        // scored_timer
+        0,                        // last_shooter
+        0,                        // sprite_data (set later)
+        BALL_SPRITE_W, BALL_SPRITE_H
+    };
+    return &b;
+}
+
+fn asr_ball(v, n) {
+    if (v < 0) { return 0 - ((0 - v) >> n); }
+    return v >> n;
+}
+
+// --- Physics ---
+
+fn ball_update(b) {
+    var ptr: *i64 = b;
+    var state = *(ptr + 6);
+
+    if (state == BALL_HELD) {
+        ball_update_held(b);
+        return;
+    }
+
+    if (state == BALL_SCORED) {
+        var timer = *(ptr + 8);
+        timer = timer - 1;
+        *(ptr + 8) = timer;
+        if (timer <= 0) {
+            *(ptr + 6) = BALL_DEAD;
+        }
+        return;
+    }
+
+    if (state == BALL_DEAD) {
+        return;
+    }
+
+    // FLIGHT or BOUNCE: apply physics
+    ball_physics_step(b);
+    ball_floor_check(b);
+}
+
+fn ball_update_held(b) {
+    var ptr: *i64 = b;
+    var holder = *(ptr + 7);
+
+    if (holder == 0) {
+        // No holder — drop the ball
+        *(ptr + 6) = BALL_FLIGHT;
+        return;
+    }
+
+    // Follow holder's position
+    var h_ptr: *i64 = holder;
+    var hx = *h_ptr;
+    var hy = *(h_ptr + 1);
+
+    // Offset ball slightly in front of player based on facing
+    var facing = *(h_ptr + 13);
+    var offset_x = 0;
+    var offset_y = 0;
+    var off = 196608;   // 3.0 in fixed-point
+
+    if (facing == 0) { offset_y = 0 - off; }        // up
+    elif (facing == 1) { offset_x = off; offset_y = 0 - off; }  // up-right
+    elif (facing == 2) { offset_x = off; }           // right
+    elif (facing == 3) { offset_x = off; offset_y = off; }      // down-right
+    elif (facing == 4) { offset_y = off; }           // down
+    elif (facing == 5) { offset_x = 0 - off; offset_y = off; }  // down-left
+    elif (facing == 6) { offset_x = 0 - off; }      // left
+    elif (facing == 7) { offset_x = 0 - off; offset_y = 0 - off; }  // up-left
+
+    *ptr = hx + offset_x;
+    *(ptr + 1) = hy + offset_y;
+    *(ptr + 2) = BALL_HOLD_Z;
+    *(ptr + 3) = 0;
+    *(ptr + 4) = 0;
+    *(ptr + 5) = 0;
+}
+
+fn ball_physics_step(b) {
+    var ptr: *i64 = b;
+
+    // Semi-implicit Euler: velocity first, then position
+    // vz += gravity (downward = negative z direction)
+    var vz = *(ptr + 5);
+    vz = vz - BALL_GRAVITY;
+    *(ptr + 5) = vz;
+
+    // Apply air drag to horizontal velocity
+    var vx = *(ptr + 3);
+    var vy = *(ptr + 4);
+    vx = asr_ball(vx * BALL_AIR_DRAG, 16);
+    vy = asr_ball(vy * BALL_AIR_DRAG, 16);
+    *(ptr + 3) = vx;
+    *(ptr + 4) = vy;
+
+    // Update position (using NEW velocity)
+    *ptr = *ptr + vx;
+    *(ptr + 1) = *(ptr + 1) + vy;
+    *(ptr + 2) = *(ptr + 2) + vz;
+}
+
+fn ball_floor_check(b) {
+    var ptr: *i64 = b;
+    var z = *(ptr + 2);
+
+    if (z <= BALL_FLOOR_Z) {
+        // Hit the floor
+        *(ptr + 2) = BALL_FLOOR_Z;
+
+        var vz = *(ptr + 5);
+        if (vz < 0) {
+            // Bounce: reverse and dampen
+            vz = 0 - asr_ball(vz * BALL_FLOOR_RESTITUTION, 16);
+            *(ptr + 5) = vz;
+
+            // If bounce velocity is tiny, stop
+            if (vz < 3277) {  // < 0.05
+                *(ptr + 5) = 0;
+                *(ptr + 6) = BALL_BOUNCE;
+            }
+        }
+    }
+}
+
+// --- Ball actions ---
+
+fn ball_launch(b, vx, vy, vz) {
+    var ptr: *i64 = b;
+    *(ptr + 3) = vx;
+    *(ptr + 4) = vy;
+    *(ptr + 5) = vz;
+    *(ptr + 6) = BALL_FLIGHT;
+    *(ptr + 7) = 0;          // no longer held
+}
+
+fn ball_give_to(b, player) {
+    var ptr: *i64 = b;
+    *(ptr + 6) = BALL_HELD;
+    *(ptr + 7) = player;
+    *(ptr + 3) = 0;
+    *(ptr + 4) = 0;
+    *(ptr + 5) = 0;
+
+    // Mark player as having ball
+    var p_ptr: *i64 = player;
+    *(p_ptr + 9) = 1;    // has_ball
+}
+
+fn ball_release_from(b, player) {
+    var p_ptr: *i64 = player;
+    *(p_ptr + 9) = 0;    // no longer has ball
+}
+
+fn ball_mark_scored(b) {
+    var ptr: *i64 = b;
+    *(ptr + 6) = BALL_SCORED;
+    *(ptr + 8) = BALL_SCORED_FRAMES;
+    *(ptr + 3) = 0;
+    *(ptr + 4) = 0;
+    *(ptr + 5) = 0;
+}
+
+fn ball_is_in_flight(b) {
+    var ptr: *i64 = b;
+    var state = *(ptr + 6);
+    if (state == BALL_FLIGHT) { return 1; }
+    if (state == BALL_BOUNCE) { return 1; }
+    return 0;
+}
+
+fn ball_reset(b, x, y) {
+    var ptr: *i64 = b;
+    *ptr = x;
+    *(ptr + 1) = y;
+    *(ptr + 2) = BALL_HOLD_Z;
+    *(ptr + 3) = 0;
+    *(ptr + 4) = 0;
+    *(ptr + 5) = 0;
+    *(ptr + 6) = BALL_HELD;
+    *(ptr + 7) = 0;
+    *(ptr + 8) = 0;
+}
+
+// --- Rendering ---
+
+fn ball_draw(b) {
+    var ptr: *i64 = b;
+    var state = *(ptr + 6);
+
+    if (state == BALL_DEAD) { return; }
+
+    var x = *ptr;
+    var y = *(ptr + 1);
+    var z = *(ptr + 2);
+
+    // Convert to screen coordinates
+    var screen_x = court_game_to_screen_x(x, y);
+    var screen_y = court_game_to_screen_y(y);
+
+    // Z lifts the ball above its ground position
+    var z_pixels = asr_ball(z * court_scale_at_y(y), 32);
+    screen_y = screen_y - z_pixels;
+
+    // Scale ball based on depth
+    var scale = court_scale_at_y(y);
+    var draw_w = asr_ball(BALL_SPRITE_W * scale, 16);
+    var draw_h = asr_ball(BALL_SPRITE_H * scale, 16);
+    if (draw_w < 3) { draw_w = 3; }
+    if (draw_h < 3) { draw_h = 3; }
+
+    // Center on position
+    var draw_x = screen_x - draw_w / 2;
+    var draw_y = screen_y - draw_h / 2;
+
+    // Draw shadow on ground (at ground-level screen_y)
+    var ground_y = court_game_to_screen_y(y);
+    sprite_draw_shadow(draw_x, ground_y, draw_w);
+
+    // Draw ball
+    var sprite_data = *(ptr + 10);
+    if (sprite_data != 0) {
+        var spr = Sprite { sprite_data, BALL_SPRITE_W, BALL_SPRITE_H };
+        sprite_blit_scaled(&spr, draw_x, draw_y, draw_w, draw_h);
+    } else {
+        // Fallback: simple filled circle approximation
+        var ball_color = 32;   // ball orange
+        if (state == BALL_SCORED) {
+            ball_color = 48;   // fire yellow when scoring
+        }
+        draw_rect(draw_x, draw_y, draw_w, draw_h, ball_color);
+        // Seam lines
+        if (draw_w > 4) {
+            draw_hline(draw_x, draw_x + draw_w - 1, draw_y + draw_h / 2, 35);
+            draw_vline(draw_x + draw_w / 2, draw_y, draw_y + draw_h - 1, 35);
+        }
+    }
+}

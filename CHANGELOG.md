@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-04-14
+
+### Added
+- **ball.cyr** — 3D ball entity (x, y, z height) with 5 states (HELD/FLIGHT/BOUNCE/SCORED/DEAD). Semi-implicit Euler physics with gravity. Floor bounce with 0.5 restitution. Air drag. Holder tracking with facing-offset positioning. Shadow rendering at ground level.
+- **collision.cyr** — Ball-rim circle collision with 0.7 restitution bounce and push-out. Ball-backboard plane collision with velocity reflection. Ball-player pickup within 6.0 radius. Player-player push-back weighted by Power stat. Scoring detection (ball falling through rim zone). Pre-shifted dist_sq to avoid fixed-point overflow.
+- **shoot.cyr** — Shot trajectory computation from player to rim with gravity compensation and arc height. Stat-driven accuracy model: base = Shooting*8, distance penalty, fire bonus (+90). PCG PRNG for make/miss determination. Miss perturbation of velocity. Three-point line detection at 14.0 game units.
+- **hud.cyr** — 3x5 pixel bitmap font for digits 0-9 with configurable scale. Score display (home/away), quarter indicator, game clock (MM:SS), shot clock with red warning under 10s. Per-player turbo meter bars with color coding (green/yellow/red). Fire indicator (flashing colored bar).
+- **game.cyr** — Full game state machine: TIPOFF(2s) → PLAYING → HALFTIME(5s) → PLAYING → GAMEOVER. 4 quarters at 3:00 each. 24-second shot clock with turnover on violation. Scoring with automatic possession change. Fire mechanic: 3 consecutive baskets activates fire, opponent scoring extinguishes. Overtime on tied score.
+- **main.cyr** — Integrated game loop: shoot on space (computes trajectory + accuracy), pass on Z (velocity toward teammate). Ball drawn interleaved with players by depth. Fire indicator. Final score display on game over.
+- 16 new test assertions (40 total): ball creation/launch/gravity/bounce/give/follow, dist_sq, ball pickup/no-pickup, PRNG determinism, shot trajectory, three-point detection, game state transitions, clock conversion, turnover, HUD digit rendering, HUD integration
+
+### Project stats
+- 12 source modules, 1 test file
+- 3255 lines of Cyrius source + 546 lines of tests = 3801 total
+- Zero external dependencies
+
 ## [0.1.0] — 2026-04-14
 
 ### Added

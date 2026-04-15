@@ -1,0 +1,319 @@
+// cyrius-nba-jam — game.cyr
+// Game state: possession, scoring, quarters, shot clock, fire mechanic.
+//
+// Reference: GAME.EQU, BB.ASM game logic
+//
+// Game flow:
+//   TIPOFF → PLAYING (Q1) → HALFTIME → PLAYING (Q2) → GAMEOVER
+//   Each quarter: 3:00 (180 seconds at 60fps = 10,800 frames)
+//   Shot clock: 24 seconds (1,440 frames)
+
+// --- Game constants ---
+
+var QUARTER_TIME = 180;          // seconds per quarter
+var QUARTER_FRAMES = 10800;      // 180 * 60
+var SHOT_CLOCK_TIME = 24;        // seconds
+var SHOT_CLOCK_FRAMES = 1440;    // 24 * 60
+var NUM_QUARTERS = 4;
+var HALFTIME_AFTER = 2;          // halftime after quarter 2
+var TIPOFF_FRAMES = 120;         // 2 seconds tipoff animation
+var GAMEOVER_FRAMES = 300;       // 5 seconds game over display
+
+// --- Game struct ---
+
+struct Game {
+    state;              // 0: GameState enum
+    quarter;            // 1: current quarter (1-4)
+    game_clock;         // 2: frames remaining in quarter
+    shot_clock;         // 3: frames remaining on shot clock
+    home_score;         // 4
+    away_score;         // 5
+    possession;         // 6: TEAM_HOME or TEAM_AWAY
+    state_timer;        // 7: timer for non-PLAYING states
+    last_scorer;        // 8: player pointer
+    consecutive_home;   // 9: consecutive baskets by home team
+    consecutive_away;   // 10: consecutive baskets by away team
+    fire_player;        // 11: player pointer who is on fire (or 0)
+}
+
+fn game_new() {
+    var g = Game {
+        STATE_TIPOFF,     // state
+        1,                // quarter
+        QUARTER_FRAMES,   // game_clock
+        SHOT_CLOCK_FRAMES, // shot_clock
+        0,                // home_score
+        0,                // away_score
+        TEAM_HOME,        // possession
+        TIPOFF_FRAMES,    // state_timer
+        0,                // last_scorer
+        0,                // consecutive_home
+        0,                // consecutive_away
+        0                 // fire_player
+    };
+    return &g;
+}
+
+// --- Game state transitions ---
+
+fn game_update(g, ball, players, player_count) {
+    var gp: *i64 = g;
+    var state = *gp;
+
+    if (state == STATE_TIPOFF) {
+        game_update_tipoff(g);
+        return;
+    }
+    if (state == STATE_PLAYING) {
+        game_update_playing(g, ball, players, player_count);
+        return;
+    }
+    if (state == STATE_HALFTIME) {
+        game_update_halftime(g);
+        return;
+    }
+    if (state == STATE_GAMEOVER) {
+        game_update_gameover(g);
+        return;
+    }
+}
+
+fn game_update_tipoff(g) {
+    var gp: *i64 = g;
+    var timer = *(gp + 7);
+    timer = timer - 1;
+    *(gp + 7) = timer;
+
+    if (timer <= 0) {
+        // Transition to playing
+        *gp = STATE_PLAYING;
+        *(gp + 2) = QUARTER_FRAMES;
+        *(gp + 3) = SHOT_CLOCK_FRAMES;
+    }
+}
+
+fn game_update_playing(g, ball, players, player_count) {
+    var gp: *i64 = g;
+
+    // Decrement game clock
+    var clock = *(gp + 2);
+    clock = clock - 1;
+    *(gp + 2) = clock;
+
+    if (clock <= 0) {
+        // Quarter over
+        game_end_quarter(g);
+        return;
+    }
+
+    // Decrement shot clock
+    var shot_clock = *(gp + 3);
+    shot_clock = shot_clock - 1;
+    *(gp + 3) = shot_clock;
+
+    if (shot_clock <= 0) {
+        // Shot clock violation — turnover
+        game_turnover(g, ball, players, player_count);
+        return;
+    }
+
+    // Check for scoring
+    var scored = collision_check_score(ball);
+    if (scored > 0) {
+        game_on_score(g, ball, scored, players, player_count);
+    }
+}
+
+fn game_update_halftime(g) {
+    var gp: *i64 = g;
+    var timer = *(gp + 7);
+    timer = timer - 1;
+    *(gp + 7) = timer;
+
+    if (timer <= 0) {
+        // Start second half
+        *gp = STATE_TIPOFF;
+        *(gp + 7) = TIPOFF_FRAMES;
+    }
+}
+
+fn game_update_gameover(g) {
+    var gp: *i64 = g;
+    var timer = *(gp + 7);
+    timer = timer - 1;
+    *(gp + 7) = timer;
+    // Game stays in GAMEOVER state — main loop checks this
+}
+
+// --- Quarter management ---
+
+fn game_end_quarter(g) {
+    var gp: *i64 = g;
+    var quarter = *(gp + 1);
+
+    if (quarter >= NUM_QUARTERS) {
+        // Check for tie → overtime, else gameover
+        var home = *(gp + 4);
+        var away = *(gp + 5);
+        if (home == away) {
+            // Overtime
+            *(gp + 1) = quarter + 1;
+            *gp = STATE_TIPOFF;
+            *(gp + 7) = TIPOFF_FRAMES;
+            *(gp + 2) = QUARTER_FRAMES;    // full quarter for OT
+        } else {
+            *gp = STATE_GAMEOVER;
+            *(gp + 7) = GAMEOVER_FRAMES;
+        }
+        return;
+    }
+
+    if (quarter == HALFTIME_AFTER) {
+        // Halftime
+        *gp = STATE_HALFTIME;
+        *(gp + 7) = 300;   // 5 second halftime display
+    } else {
+        // Next quarter tipoff
+        *gp = STATE_TIPOFF;
+        *(gp + 7) = TIPOFF_FRAMES;
+    }
+
+    *(gp + 1) = quarter + 1;
+    *(gp + 2) = QUARTER_FRAMES;
+    *(gp + 3) = SHOT_CLOCK_FRAMES;
+}
+
+// --- Scoring ---
+
+fn game_on_score(g, ball, points, players, player_count) {
+    var gp: *i64 = g;
+
+    // Determine who scored (from ball's last_shooter)
+    var bp: *i64 = ball;
+    var shooter = *(bp + 9);
+    *(gp + 8) = shooter;   // last_scorer
+
+    if (shooter == 0) { return; }
+
+    var sp: *i64 = shooter;
+    var team = *(sp + 7);
+
+    // Check three-pointer
+    // For now, use the points value from collision (2 or 3)
+    // Will be refined when we track shooter's launch position
+    var actual_points = points;
+
+    // Add score
+    if (team == TEAM_HOME) {
+        *(gp + 4) = *(gp + 4) + actual_points;
+        // Fire tracking
+        var consec = *(gp + 9);
+        consec = consec + 1;
+        *(gp + 9) = consec;
+        *(gp + 10) = 0;     // reset away consecutive
+
+        // Check fire activation
+        if (consec >= FIRE_BASKETS_NEEDED) {
+            game_activate_fire(g, shooter);
+        }
+    } else {
+        *(gp + 5) = *(gp + 5) + actual_points;
+        var consec = *(gp + 10);
+        consec = consec + 1;
+        *(gp + 10) = consec;
+        *(gp + 9) = 0;      // reset home consecutive
+
+        if (consec >= FIRE_BASKETS_NEEDED) {
+            game_activate_fire(g, shooter);
+        }
+    }
+
+    // Reset shot clock
+    *(gp + 3) = SHOT_CLOCK_FRAMES;
+
+    // Change possession
+    if (team == TEAM_HOME) {
+        *(gp + 6) = TEAM_AWAY;
+    } else {
+        *(gp + 6) = TEAM_HOME;
+    }
+
+    // Extinguish opponent's fire
+    var fire_p = *(gp + 11);
+    if (fire_p != 0) {
+        var fp: *i64 = fire_p;
+        var fire_team = *(fp + 7);
+        if (fire_team != team) {
+            // Opponent scored — extinguish fire
+            *(fp + 10) = 0;     // on_fire = 0
+            *(gp + 11) = 0;     // no fire player
+        }
+    }
+}
+
+// --- Fire mechanic ---
+
+fn game_activate_fire(g, player) {
+    var gp: *i64 = g;
+    var pp: *i64 = player;
+
+    // Set player on fire
+    *(pp + 10) = 1;     // on_fire
+    *(pp + 11) = TURBO_MAX;  // refill turbo
+    *(gp + 11) = player;    // fire_player
+}
+
+// --- Turnover ---
+
+fn game_turnover(g, ball, players, player_count) {
+    var gp: *i64 = g;
+
+    // Switch possession
+    var poss = *(gp + 6);
+    if (poss == TEAM_HOME) {
+        *(gp + 6) = TEAM_AWAY;
+    } else {
+        *(gp + 6) = TEAM_HOME;
+    }
+
+    // Reset shot clock
+    *(gp + 3) = SHOT_CLOCK_FRAMES;
+
+    // Give ball to first player on new possession team
+    var new_poss = *(gp + 6);
+    var i = 0;
+    while (i < player_count) {
+        var p = load64(players + i * 8);
+        var pp: *i64 = p;
+        if (*(pp + 7) == new_poss) {
+            ball_reset(ball, *pp, *(pp + 1));
+            ball_give_to(ball, p);
+            return;
+        }
+        i = i + 1;
+    }
+}
+
+// --- Accessors ---
+
+fn game_is_playing(g) {
+    var gp: *i64 = g;
+    if (*gp == STATE_PLAYING) { return 1; }
+    return 0;
+}
+
+fn game_is_over(g) {
+    var gp: *i64 = g;
+    if (*gp == STATE_GAMEOVER) { return 1; }
+    return 0;
+}
+
+fn game_clock_seconds(g) {
+    var gp: *i64 = g;
+    return *(gp + 2) / 60;
+}
+
+fn game_shot_clock_seconds(g) {
+    var gp: *i64 = g;
+    return *(gp + 3) / 60;
+}

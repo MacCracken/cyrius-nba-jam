@@ -1,6 +1,6 @@
 [project]
 name = "cyrius-nba-jam"
-version = "0.1.0"
+version = "0.2.0"
 description = "NBA Jam reimplementation in Cyrius — 2D arcade basketball"
 license = "GPL-3.0-only"
 repository = "https://github.com/MacCracken/cyrius-nba-jam"

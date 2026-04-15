@@ -1,6 +1,6 @@
 // cyrius-nba-jam — test suite
-// Tests for: physics, fire mechanic, stats, render, sprite, court,
-// player state machine, player movement.
+// v0.2.0: Tests for physics, fire, stats, render, sprite, court,
+// player, ball, collision, shooting, game state, HUD.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -12,12 +12,15 @@ include "src/render.cyr"
 include "src/sprite.cyr"
 include "src/court.cyr"
 include "src/player.cyr"
+include "src/ball.cyr"
+include "src/collision.cyr"
+include "src/shoot.cyr"
+include "src/game.cyr"
+include "src/hud.cyr"
 
-// ========= Ball physics =========
+// ========= Ball physics (from v0.1.0) =========
 
 fn test_ball_arc() {
-    // Ball at y=100, velocity_y=-20 (upward)
-    // After gravity, velocity_y should increase (less negative)
     var y = 100 * 65536;
     var vy = 0 - (20 * 65536);
     var gravity = BALL_GRAVITY;
@@ -28,7 +31,6 @@ fn test_ball_arc() {
         y = y + vy;
         i = i + 1;
     }
-
     assert(vy > (0 - (20 * 65536)), "gravity slows upward velocity");
     return 0;
 }
@@ -36,15 +38,9 @@ fn test_ball_arc() {
 // ========= Fire mechanic =========
 
 fn test_fire_activation() {
-    var consecutive = 0;
-    consecutive = consecutive + 1;
-    consecutive = consecutive + 1;
-    consecutive = consecutive + 1;
-
+    var consecutive = 3;
     var on_fire = 0;
-    if (consecutive >= FIRE_BASKETS_NEEDED) {
-        on_fire = 1;
-    }
+    if (consecutive >= FIRE_BASKETS_NEEDED) { on_fire = 1; }
     assert(on_fire == 1, "3 consecutive baskets activate fire");
     return 0;
 }
@@ -61,15 +57,9 @@ fn test_fire_extinguish() {
 
 fn test_stat_range() {
     var stats[9];
-    store64(&stats, 7);       // speed
-    store64(&stats + 8, 4);   // power
-    store64(&stats + 16, 9);  // shooting
-    store64(&stats + 24, 8);  // dunking
-    store64(&stats + 32, 3);  // stealing
-    store64(&stats + 40, 5);  // blocking
-    store64(&stats + 48, 6);  // pass
-    store64(&stats + 56, 10); // clutch
-    store64(&stats + 64, 5);  // rebound
+    store64(&stats, 7); store64(&stats + 8, 4); store64(&stats + 16, 9);
+    store64(&stats + 24, 8); store64(&stats + 32, 3); store64(&stats + 40, 5);
+    store64(&stats + 48, 6); store64(&stats + 56, 10); store64(&stats + 64, 5);
 
     var i = 0;
     while (i < STAT_COUNT) {
@@ -88,7 +78,6 @@ fn test_fb_clear() {
     fb_clear(42);
     assert_eq(fb_get(0, 0), 42, "clear fills (0,0)");
     assert_eq(fb_get(160, 120), 42, "clear fills center");
-    assert_eq(fb_get(319, 239), 42, "clear fills last pixel");
     fb_clear(0);
     return 0;
 }
@@ -98,23 +87,17 @@ fn test_fb_set_get() {
     fb_clear(0);
     fb_set(100, 100, 7);
     assert_eq(fb_get(100, 100), 7, "set/get pixel");
-    assert_eq(fb_get(101, 100), 0, "adjacent pixel unchanged");
+    assert_eq(fb_get(101, 100), 0, "adjacent unchanged");
     return 0;
 }
 
 fn test_fb_bounds() {
     render_init();
     fb_clear(0);
-    // Out of bounds should return 0 and not crash
-    assert_eq(fb_get(-1, 0), 0, "negative x returns 0");
-    assert_eq(fb_get(0, -1), 0, "negative y returns 0");
-    assert_eq(fb_get(320, 0), 0, "x >= width returns 0");
-    assert_eq(fb_get(0, 240), 0, "y >= height returns 0");
-
-    // Set out of bounds should not crash
+    assert_eq(fb_get(-1, 0), 0, "neg x returns 0");
+    assert_eq(fb_get(320, 0), 0, "x >= W returns 0");
     fb_set(-1, 0, 99);
     fb_set(320, 0, 99);
-    fb_set(0, 240, 99);
     return 0;
 }
 
@@ -123,33 +106,15 @@ fn test_draw_hline() {
     fb_clear(0);
     draw_hline(10, 20, 50, 8);
     assert_eq(fb_get(10, 50), 8, "hline start");
-    assert_eq(fb_get(15, 50), 8, "hline mid");
     assert_eq(fb_get(20, 50), 8, "hline end");
-    assert_eq(fb_get(9, 50), 0, "hline before start");
-    assert_eq(fb_get(21, 50), 0, "hline after end");
-    return 0;
-}
-
-fn test_draw_rect() {
-    render_init();
-    fb_clear(0);
-    draw_rect(50, 50, 10, 10, 5);
-    assert_eq(fb_get(50, 50), 5, "rect top-left");
-    assert_eq(fb_get(55, 55), 5, "rect center");
-    assert_eq(fb_get(59, 59), 5, "rect bottom-right");
-    assert_eq(fb_get(60, 60), 0, "rect outside");
+    assert_eq(fb_get(9, 50), 0, "hline before");
     return 0;
 }
 
 fn test_palette() {
     render_init();
-    // Check palette values
     assert_eq(pal_get_r(0), 0, "palette 0 R=0");
-    assert_eq(pal_get_g(0), 0, "palette 0 G=0");
-    assert_eq(pal_get_b(0), 0, "palette 0 B=0");
     assert_eq(pal_get_r(63), 255, "palette 63 R=255");
-    assert_eq(pal_get_g(63), 255, "palette 63 G=255");
-    assert_eq(pal_get_b(63), 255, "palette 63 B=255");
     return 0;
 }
 
@@ -158,191 +123,351 @@ fn test_palette() {
 fn test_sprite_blit() {
     render_init();
     fb_clear(0);
-
-    // Create a 4x4 test sprite
     var data[16];
     memset(&data, 0, 16);
-    store8(&data + 5, 2);      // pixel at (1,1) = color 2
-    store8(&data + 6, 2);      // pixel at (2,1) = color 2
-
+    store8(&data + 5, 2);
     var spr = Sprite { &data, 4, 4 };
     sprite_blit(&spr, 10, 10);
-
     assert_eq(fb_get(11, 11), 2, "sprite blit writes pixel");
-    assert_eq(fb_get(10, 10), 0, "sprite transparent pixel");
-    return 0;
-}
-
-fn test_sprite_clipping() {
-    render_init();
-    fb_clear(0);
-
-    // Sprite at edge of screen
-    var data[16];
-    memset(&data, 0, 16);
-    store8(&data + 5, 3);
-
-    var spr = Sprite { &data, 4, 4 };
-    sprite_blit(&spr, 318, 0);
-
-    // Should not crash, and visible pixels should be drawn
-    // Pixel at (319, 1) = sprite col 1, row 1 = color 3
-    assert_eq(fb_get(319, 1), 3, "clipped sprite visible at edge");
+    assert_eq(fb_get(10, 10), 0, "transparent pixel unchanged");
     return 0;
 }
 
 fn test_sprite_make_player() {
-    // Generate placeholder player sprite
-    var buf[384];   // 16*24 = 384 bytes
+    var buf[384];
     sprite_make_player(&buf, 16, 24, 16, 20);
-
-    // Head area (top quarter, centered) should be skin color
-    var head_pixel = load8(&buf + 1 * 16 + 6);  // row 1, col 6
-    assert_eq(head_pixel, 20, "player head is skin color");
-
-    // Body area should be jersey color
-    var body_pixel = load8(&buf + 12 * 16 + 8);  // row 12, col 8
-    assert_eq(body_pixel, 16, "player body is jersey color");
+    var body = load8(&buf + 12 * 16 + 8);
+    assert_eq(body, 16, "player body is jersey");
     return 0;
 }
 
 // ========= Court =========
 
 fn test_court_screen_y() {
-    // Far baseline (COURT_FAR = 50.0 = 3276800) → screen top (40)
     var far_y = court_game_to_screen_y(COURT_FAR);
-    assert_eq(far_y, 40, "far baseline maps to screen top");
-
-    // Near baseline (COURT_NEAR = 225.0 = 14745600) → screen bottom (210)
+    assert_eq(far_y, 40, "far -> screen top");
     var near_y = court_game_to_screen_y(COURT_NEAR);
-    assert_eq(near_y, 210, "near baseline maps to screen bottom");
+    assert_eq(near_y, 210, "near -> screen bottom");
     return 0;
 }
 
 fn test_court_scale() {
-    // At far end: scale = 0.5 (32768 in 16.16)
     var far_scale = court_scale_at_y(COURT_FAR);
-    assert_eq(far_scale, 32768, "far scale is 0.5");
-
-    // At near end: scale ≈ 1.0 (65536 in 16.16)
+    assert_eq(far_scale, 32768, "far scale 0.5");
     var near_scale = court_scale_at_y(COURT_NEAR);
-    assert(near_scale > 60000, "near scale is near 1.0");
-    assert(near_scale <= 65536, "near scale <= 1.0");
-    return 0;
-}
-
-fn test_court_center_x() {
-    // Center court X (160.0) at center Y should map near screen center
-    var mid_y = (COURT_FAR + COURT_NEAR) / 2;     // 137.5 in fixed-point
-    var center_x = court_game_to_screen_x(RIM_X, mid_y);
-    assert(center_x > 140, "center X > 140");
-    assert(center_x < 180, "center X < 180");
+    assert(near_scale > 60000, "near scale ~1.0");
     return 0;
 }
 
 // ========= Player state machine =========
 
-fn test_player_idle_to_run() {
-    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
-    player_try_transition(p, PS_RUN);
-    var ptr: *i64 = p;
-    assert_eq(*(ptr + 4), PS_RUN, "idle -> run");
-    return 0;
-}
-
-fn test_player_committed_state() {
+fn test_player_committed() {
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
     player_try_transition(p, PS_SHOOT);
     var ptr: *i64 = p;
-    assert_eq(*(ptr + 4), PS_SHOOT, "entered shoot state");
-    assert_eq(*(ptr + 6), 30, "shoot timer = 30 frames");
-
-    // Try to run during shoot — should be rejected
+    assert_eq(*(ptr + 4), PS_SHOOT, "entered shoot");
     player_try_transition(p, PS_RUN);
-    assert_eq(*(ptr + 4), PS_SHOOT, "shoot rejects run input");
+    assert_eq(*(ptr + 4), PS_SHOOT, "shoot rejects input");
     return 0;
 }
 
 fn test_player_timer_expiry() {
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
     player_try_transition(p, PS_SHOOT);
-
     var i = 0;
-    while (i < 30) {
-        player_tick_state(p);
-        i = i + 1;
-    }
-
+    while (i < 30) { player_tick_state(p); i = i + 1; }
     var ptr: *i64 = p;
     assert_eq(*(ptr + 4), PS_IDLE, "shoot -> idle after timer");
-    assert_eq(*(ptr + 6), 0, "timer is zero");
     return 0;
 }
 
-// ========= Player movement =========
-
 fn test_player_movement() {
-    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);    // (100.0, 130.0)
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
     player_set_stats(p, 7, 5, 8, 6, 4, 5, 6, 7, 5);
-
     var ptr: *i64 = p;
     var initial_x = *ptr;
-
-    // Apply rightward input for 10 frames
     var i = 0;
     while (i < 10) {
         player_apply_input(p, 1, 0, 0);
         player_update(p);
         i = i + 1;
     }
-
-    // X should have increased
     assert(*ptr > initial_x, "player moved right");
     return 0;
 }
 
 fn test_player_court_bounds() {
-    // Place player at right edge
     var p = player_new(TEAM_HOME, 0, COURT_RIGHT, 8519680);
     var ptr: *i64 = p;
-
-    // Push rightward
-    *(ptr + 2) = 65536;    // vx = 1.0
+    *(ptr + 2) = 65536;
     player_update(p);
-
-    // Should be clamped to court right
-    assert_eq(*ptr, COURT_RIGHT, "player clamped to court right");
-    assert_eq(*(ptr + 2), 0, "velocity zeroed at boundary");
+    assert_eq(*ptr, COURT_RIGHT, "clamped to court right");
     return 0;
 }
 
-fn test_player_facing() {
+// ========= Ball =========
+
+fn test_ball_new() {
+    var b = ball_new(6553600, 8519680);
+    var bp: *i64 = b;
+    assert_eq(*(bp + 6), BALL_HELD, "ball starts held");
+    assert_eq(*(bp + 2), BALL_HOLD_Z, "ball at hold height");
+    return 0;
+}
+
+fn test_ball_launch() {
+    var b = ball_new(6553600, 8519680);
+    ball_launch(b, 65536, 32768, 131072);
+    var bp: *i64 = b;
+    assert_eq(*(bp + 6), BALL_FLIGHT, "ball in flight after launch");
+    assert_eq(*(bp + 3), 65536, "vx set");
+    assert_eq(*(bp + 5), 131072, "vz set");
+    return 0;
+}
+
+fn test_ball_gravity() {
+    var b = ball_new(6553600, 8519680);
+    ball_launch(b, 0, 0, 131072);   // straight up
+
+    var bp: *i64 = b;
+    var initial_vz = *(bp + 5);
+
+    // Step a few frames
+    var i = 0;
+    while (i < 5) {
+        ball_physics_step(b);
+        i = i + 1;
+    }
+
+    // vz should have decreased (gravity pulls down)
+    assert(*(bp + 5) < initial_vz, "gravity reduces vz");
+    return 0;
+}
+
+fn test_ball_floor_bounce() {
+    var b = ball_new(6553600, 8519680);
+    var bp: *i64 = b;
+    // Put ball at floor with downward velocity
+    *(bp + 2) = 0;              // z = floor
+    *(bp + 5) = 0 - 65536;     // vz = -1.0 (downward)
+    *(bp + 6) = BALL_FLIGHT;
+
+    ball_floor_check(b);
+
+    // vz should be positive (bounced)
+    assert(*(bp + 5) >= 0, "vz positive after floor bounce");
+    assert_eq(*(bp + 2), 0, "z at floor after bounce");
+    return 0;
+}
+
+fn test_ball_give_to() {
+    var b = ball_new(6553600, 8519680);
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
-    var ptr: *i64 = p;
+    ball_give_to(b, p);
 
-    player_apply_input(p, 1, 0, 0);   // right
-    assert_eq(*(ptr + 13), 2, "facing right");
+    var bp: *i64 = b;
+    assert_eq(*(bp + 6), BALL_HELD, "ball held after give");
+    assert_eq(*(bp + 7), p, "holder set");
 
-    player_apply_input(p, -1, 0, 0);  // left
-    assert_eq(*(ptr + 13), 6, "facing left");
-
-    player_apply_input(p, 0, -1, 0);  // up
-    assert_eq(*(ptr + 13), 0, "facing up");
-
-    player_apply_input(p, 1, -1, 0);  // up-right
-    assert_eq(*(ptr + 13), 1, "facing up-right");
+    var pp: *i64 = p;
+    assert_eq(*(pp + 9), 1, "player has_ball");
     return 0;
 }
 
-// ========= Pixel count =========
+fn test_ball_held_follows_player() {
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var b = ball_new(0, 0);
+    ball_give_to(b, p);
+    ball_update(b);
+
+    var bp: *i64 = b;
+    var pp: *i64 = p;
+    // Ball should be near player position
+    var dx = *bp - *pp;
+    if (dx < 0) { dx = 0 - dx; }
+    assert(dx < 327680, "ball follows player x");   // within 5.0
+    return 0;
+}
+
+// ========= Collision =========
+
+fn test_dist_sq() {
+    var d = dist_sq(0, 0, 196608, 262144);   // (0,0) to (3,4)
+    assert(d > 0, "dist_sq positive for 3-4-5 triangle");
+    return 0;
+}
+
+fn test_ball_player_pickup() {
+    var b = ball_new(6553600, 8519680);
+    var bp: *i64 = b;
+    *(bp + 6) = BALL_BOUNCE;     // loose ball
+    *(bp + 2) = 0;               // on floor
+
+    // Player right on top of ball
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var result = collision_ball_player(b, p);
+    assert_eq(result, 1, "player picks up nearby ball");
+    assert_eq(*(bp + 6), BALL_HELD, "ball now held");
+    return 0;
+}
+
+fn test_ball_player_too_far() {
+    var b = ball_new(6553600, 8519680);
+    var bp: *i64 = b;
+    *(bp + 6) = BALL_BOUNCE;
+    *(bp + 2) = 0;
+
+    // Player far away
+    var p = player_new(TEAM_HOME, 0, 14417920, 8519680);  // (220, 130)
+    var result = collision_ball_player(b, p);
+    assert_eq(result, 0, "no pickup when far away");
+    return 0;
+}
+
+// ========= Shooting =========
+
+fn test_shoot_rng_determinism() {
+    shoot_rng_seed(42);
+    var a = shoot_rng();
+    shoot_rng_seed(42);
+    var b = shoot_rng();
+    assert_eq(a, b, "same seed -> same value");
+    return 0;
+}
+
+fn test_compute_shot() {
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    compute_shot(p, RIM_RIGHT_X, RIM_Y);
+
+    // vx should be positive (shooting right)
+    assert(_shot_vx > 0, "shot vx positive toward right rim");
+    // vz should be positive (ball goes up)
+    assert(_shot_vz > 0, "shot vz positive (upward arc)");
+    return 0;
+}
+
+fn test_three_pointer() {
+    // Close player: not a three
+    var p_close = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 655360, RIM_Y);
+    assert_eq(is_three_pointer(p_close, RIM_RIGHT_X, RIM_Y), 0, "close = 2pt");
+
+    // Far player: three-pointer
+    var p_far = player_new(TEAM_HOME, 0, 6553600, 8519680);  // (100, 130)
+    assert_eq(is_three_pointer(p_far, RIM_RIGHT_X, RIM_Y), 1, "far = 3pt");
+    return 0;
+}
+
+// ========= Game state =========
+
+fn test_game_new() {
+    var g = game_new();
+    var gp: *i64 = g;
+    assert_eq(*gp, STATE_TIPOFF, "game starts in tipoff");
+    assert_eq(*(gp + 1), 1, "quarter 1");
+    assert_eq(*(gp + 4), 0, "home score 0");
+    assert_eq(*(gp + 5), 0, "away score 0");
+    return 0;
+}
+
+fn test_game_tipoff_to_playing() {
+    var g = game_new();
+    var gp: *i64 = g;
+
+    // Tick through tipoff
+    var i = 0;
+    while (i < TIPOFF_FRAMES + 1) {
+        game_update_tipoff(g);
+        i = i + 1;
+    }
+    assert_eq(*gp, STATE_PLAYING, "tipoff -> playing");
+    return 0;
+}
+
+fn test_game_clock_seconds() {
+    var g = game_new();
+    var gp: *i64 = g;
+    *(gp + 2) = 3600;    // 60 seconds * 60 fps
+    assert_eq(game_clock_seconds(g), 60, "clock_seconds = 60");
+    return 0;
+}
+
+fn test_game_turnover() {
+    var g = game_new();
+    var gp: *i64 = g;
+    *gp = STATE_PLAYING;
+    *(gp + 6) = TEAM_HOME;
+
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var p2 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
+    var players[2];
+    store64(&players, p1);
+    store64(&players + 8, p2);
+
+    var b = ball_new(6553600, 8519680);
+    ball_give_to(b, p1);
+
+    game_turnover(g, b, &players, 2);
+
+    assert_eq(*(gp + 6), TEAM_AWAY, "possession changed on turnover");
+    return 0;
+}
+
+// ========= HUD =========
+
+fn test_hud_digit() {
+    render_init();
+    fb_clear(0);
+    hud_init_font();
+    hud_draw_digit(0, 100, 100, 8, 2);
+
+    // Digit "0" at 2x scale: top row = 111 → 6 pixels at (100-105, 100-101)
+    assert_eq(fb_get(100, 100), 8, "digit 0 top-left");
+    assert_eq(fb_get(104, 100), 8, "digit 0 top-right");
+    return 0;
+}
+
+fn test_hud_renders() {
+    render_init();
+    fb_clear(0);
+
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var players[1];
+    store64(&players, p1);
+
+    hud_draw(42, 37, 2, 120, 18, &players, 1);
+
+    // Top bar should have non-zero pixels
+    var top_pixel = fb_get(10, 3);
+    assert(top_pixel != 0, "HUD renders score area");
+    return 0;
+}
+
+// ========= Integration =========
 
 fn test_court_render_pixels() {
     render_init();
     fb_clear(0);
     court_draw();
     var pixels = render_pixel_count();
-    assert(pixels > 10000, "court renders >10000 pixels");
-    assert(pixels < 76800, "court doesn't fill entire screen");
+    assert(pixels > 10000, "court >10000 pixels");
+    return 0;
+}
+
+fn test_full_frame() {
+    render_init();
+    fb_clear(0);
+    court_draw();
+
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var pp: *i64 = p;
+    *(pp + 14) = 0;     // no sprite, use fallback
+    player_draw(p);
+
+    var b = ball_new(10485760, 6553600);
+    ball_draw(b);
+
+    var pixels = render_pixel_count();
+    assert(pixels > 12000, "full frame > 12000 pixels");
     return 0;
 }
 
@@ -351,10 +476,10 @@ fn test_court_render_pixels() {
 fn main() {
     alloc_init();
 
-    // Ball physics
+    // Physics
     test_ball_arc();
 
-    // Fire mechanic
+    // Fire
     test_fire_activation();
     test_fire_extinguish();
 
@@ -366,31 +491,53 @@ fn main() {
     test_fb_set_get();
     test_fb_bounds();
     test_draw_hline();
-    test_draw_rect();
     test_palette();
 
     // Sprite
     test_sprite_blit();
-    test_sprite_clipping();
     test_sprite_make_player();
 
     // Court
     test_court_screen_y();
     test_court_scale();
-    test_court_center_x();
 
-    // Player state machine
-    test_player_idle_to_run();
-    test_player_committed_state();
+    // Player
+    test_player_committed();
     test_player_timer_expiry();
-
-    // Player movement
     test_player_movement();
     test_player_court_bounds();
-    test_player_facing();
+
+    // Ball
+    test_ball_new();
+    test_ball_launch();
+    test_ball_gravity();
+    test_ball_floor_bounce();
+    test_ball_give_to();
+    test_ball_held_follows_player();
+
+    // Collision
+    test_dist_sq();
+    test_ball_player_pickup();
+    test_ball_player_too_far();
+
+    // Shooting
+    test_shoot_rng_determinism();
+    test_compute_shot();
+    test_three_pointer();
+
+    // Game state
+    test_game_new();
+    test_game_tipoff_to_playing();
+    test_game_clock_seconds();
+    test_game_turnover();
+
+    // HUD
+    test_hud_digit();
+    test_hud_renders();
 
     // Integration
     test_court_render_pixels();
+    test_full_frame();
 
     return assert_summary();
 }

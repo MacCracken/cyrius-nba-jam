@@ -4,8 +4,8 @@
 // Reference: historicalsource/nba-jam (TMS34010 assembly)
 // All code is new Cyrius — the original is design reference only.
 //
-// v0.1.0: Court rendering + player movement on court.
-// Exit criteria: A player sprite moves around a rendered court.
+// v0.2.0: Ball physics, shooting, collision, HUD, game state.
+// A player can shoot the ball, it arcs, hits/misses the rim, score updates.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -18,84 +18,162 @@ include "src/render.cyr"
 include "src/sprite.cyr"
 include "src/court.cyr"
 include "src/player.cyr"
+include "src/ball.cyr"
+include "src/collision.cyr"
+include "src/shoot.cyr"
+include "src/game.cyr"
+include "src/hud.cyr"
 include "src/input.cyr"
 
 // --- Game state ---
 
-var _players[4];             // 4 player pointers (2 per team)
-var _player_count = 0;
-var _active_player = 0;      // index of human-controlled player
+var _players[4];
+var _player_count = 4;
+var _active_player = 0;
 var _frame_count = 0;
 var _running = 0;
-var _ppm_mode = 0;           // --ppm flag: render one frame and save screenshot
+var _ppm_mode = 0;
 
-// Player sprite pixel buffers (allocated once)
+var _ball = 0;
+var _game = 0;
+
+// Sprite buffers
 var _sprite_buf_home1 = 0;
 var _sprite_buf_home2 = 0;
 var _sprite_buf_away1 = 0;
 var _sprite_buf_away2 = 0;
+var _sprite_buf_ball = 0;
 
 // --- Init ---
 
-fn game_init() {
+fn game_init_all() {
     alloc_init();
     render_init();
 
-    // Allocate placeholder sprite buffers
-    var sprite_size = PLAYER_SPRITE_W * PLAYER_SPRITE_H;
-    _sprite_buf_home1 = alloc(sprite_size);
-    _sprite_buf_home2 = alloc(sprite_size);
-    _sprite_buf_away1 = alloc(sprite_size);
-    _sprite_buf_away2 = alloc(sprite_size);
+    // Allocate sprites
+    var ps = PLAYER_SPRITE_W * PLAYER_SPRITE_H;
+    _sprite_buf_home1 = alloc(ps);
+    _sprite_buf_home2 = alloc(ps);
+    _sprite_buf_away1 = alloc(ps);
+    _sprite_buf_away2 = alloc(ps);
+    _sprite_buf_ball = alloc(BALL_SPRITE_W * BALL_SPRITE_H);
 
-    // Generate placeholder player sprites
     sprite_make_player(_sprite_buf_home1, PLAYER_SPRITE_W, PLAYER_SPRITE_H, 16, 20);
     sprite_make_player(_sprite_buf_home2, PLAYER_SPRITE_W, PLAYER_SPRITE_H, 17, 21);
     sprite_make_player(_sprite_buf_away1, PLAYER_SPRITE_W, PLAYER_SPRITE_H, 24, 20);
     sprite_make_player(_sprite_buf_away2, PLAYER_SPRITE_W, PLAYER_SPRITE_H, 25, 21);
+    sprite_make_ball(_sprite_buf_ball, BALL_SPRITE_W, BALL_SPRITE_H);
 
-    // Create 4 players at starting positions
-    // Home team (left side)
-    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);    // (100.0, 130.0)
-    var p1_ptr: *i64 = p1;
-    *(p1_ptr + 14) = _sprite_buf_home1;
+    // Create players
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);    // (100, 130)
+    var p1p: *i64 = p1;
+    *(p1p + 14) = _sprite_buf_home1;
     player_set_stats(p1, 7, 5, 8, 6, 4, 5, 6, 7, 5);
 
-    var p2 = player_new(TEAM_HOME, 1, 6553600, 11141120);   // (100.0, 170.0)
-    var p2_ptr: *i64 = p2;
-    *(p2_ptr + 14) = _sprite_buf_home2;
+    var p2 = player_new(TEAM_HOME, 1, 6553600, 11141120);   // (100, 170)
+    var p2p: *i64 = p2;
+    *(p2p + 14) = _sprite_buf_home2;
     player_set_stats(p2, 5, 7, 5, 8, 3, 7, 5, 6, 7);
 
-    // Away team (right side)
-    var p3 = player_new(TEAM_AWAY, 0, 14417920, 8519680);   // (220.0, 130.0)
-    var p3_ptr: *i64 = p3;
-    *(p3_ptr + 14) = _sprite_buf_away1;
+    var p3 = player_new(TEAM_AWAY, 0, 14417920, 8519680);   // (220, 130)
+    var p3p: *i64 = p3;
+    *(p3p + 14) = _sprite_buf_away1;
     player_set_stats(p3, 8, 4, 7, 7, 6, 4, 7, 5, 4);
 
-    var p4 = player_new(TEAM_AWAY, 1, 14417920, 11141120);  // (220.0, 170.0)
-    var p4_ptr: *i64 = p4;
-    *(p4_ptr + 14) = _sprite_buf_away2;
+    var p4 = player_new(TEAM_AWAY, 1, 14417920, 11141120);  // (220, 170)
+    var p4p: *i64 = p4;
+    *(p4p + 14) = _sprite_buf_away2;
     player_set_stats(p4, 6, 8, 6, 5, 5, 8, 4, 8, 6);
 
     store64(&_players, p1);
     store64(&_players + 8, p2);
     store64(&_players + 16, p3);
     store64(&_players + 24, p4);
-    _player_count = 4;
+
+    // Create ball, give to home player 1
+    _ball = ball_new(6553600, 8519680);
+    var ballp: *i64 = _ball;
+    *(ballp + 10) = _sprite_buf_ball;
+    ball_give_to(_ball, p1);
+
+    // Create game state
+    _game = game_new();
 
     _active_player = 0;
     _frame_count = 0;
     _running = 1;
+
+    // Seed shoot RNG with frame count + arbitrary value
+    shoot_rng_seed(98765);
+}
+
+// --- Target rim for current possession ---
+
+fn get_target_rim_x(g) {
+    var gp: *i64 = g;
+    var poss = *(gp + 6);
+    // Home team shoots at right rim, away shoots at left
+    if (poss == TEAM_HOME) { return RIM_RIGHT_X; }
+    return RIM_LEFT_X;
+}
+
+fn get_target_rim_y() {
+    return RIM_Y;
 }
 
 // --- Update ---
 
-fn game_update() {
-    // Get active player
+fn game_update_all() {
     var active = load64(&_players + _active_player * 8);
+    var ap: *i64 = active;
 
-    // Apply input to active player
+    // Apply movement input
     player_apply_input(active, input_dx(), input_dy(), input_turbo());
+
+    // Handle shoot action
+    if (input_shoot() == 1) {
+        if (*(ap + 9) == 1) {   // has_ball
+            var state = *(ap + 4);
+            if (state != PS_SHOOT) {
+                player_try_transition(active, PS_SHOOT);
+                // Launch shot
+                var rim_x = get_target_rim_x(_game);
+                var rim_y = get_target_rim_y();
+                shoot_ball(active, _ball, rim_x, rim_y);
+            }
+        }
+    }
+
+    // Handle pass action
+    if (input_pass() == 1) {
+        if (*(ap + 9) == 1) {   // has_ball
+            // Find teammate
+            var i = 0;
+            while (i < _player_count) {
+                if (i != _active_player) {
+                    var teammate = load64(&_players + i * 8);
+                    var tp: *i64 = teammate;
+                    if (*(tp + 7) == *(ap + 7)) {   // same team
+                        // Pass to teammate
+                        player_try_transition(active, PS_PASS);
+                        ball_release_from(_ball, active);
+
+                        // Compute pass velocity toward teammate
+                        var tx = *tp;
+                        var ty = *(tp + 1);
+                        var px = *ap;
+                        var py = *(ap + 1);
+                        var pass_speed = 15;    // frames to reach teammate
+                        var vx = (tx - px) / pass_speed;
+                        var vy = (ty - py) / pass_speed;
+                        ball_launch(_ball, vx, vy, 13107);  // slight upward arc (0.2)
+                        i = _player_count;   // break
+                    }
+                }
+                i = i + 1;
+            }
+        }
+    }
 
     // Update all players
     var i = 0;
@@ -105,20 +183,29 @@ fn game_update() {
         i = i + 1;
     }
 
+    // Update ball
+    ball_update(_ball);
+
+    // Run collisions
+    collision_update(_ball, &_players, _player_count);
+
+    // Update game state (clock, scoring, etc.)
+    game_update(_game, _ball, &_players, _player_count);
+
     _frame_count = _frame_count + 1;
 }
 
 // --- Render ---
 
-fn game_render() {
-    // Clear to black
+fn game_render_all() {
     fb_clear(0);
 
-    // Draw court (background layer)
+    // Court
     court_draw();
 
-    // Sort players by Y for correct draw order (painter's algorithm)
-    // Simple bubble sort on 4 elements
+    // Sort entities by Y for painter's algorithm
+    // Collect all drawable entities: 4 players + 1 ball = 5
+    // Simple: draw players sorted by Y, draw ball separately based on Z
     var sorted[4];
     var i = 0;
     while (i < _player_count) {
@@ -126,19 +213,16 @@ fn game_render() {
         i = i + 1;
     }
 
-    // Sort by Y (ascending = far players drawn first)
+    // Bubble sort by Y
     i = 0;
     while (i < _player_count - 1) {
         var j = 0;
         while (j < _player_count - 1 - i) {
             var pa = load64(&sorted + j * 8);
             var pb = load64(&sorted + (j + 1) * 8);
-            var pa_ptr: *i64 = pa;
-            var pb_ptr: *i64 = pb;
-            var ya = *(pa_ptr + 1);
-            var yb = *(pb_ptr + 1);
-            if (ya > yb) {
-                // Swap
+            var ap: *i64 = pa;
+            var bp: *i64 = pb;
+            if (*(ap + 1) > *(bp + 1)) {
                 store64(&sorted + j * 8, pb);
                 store64(&sorted + (j + 1) * 8, pa);
             }
@@ -147,50 +231,75 @@ fn game_render() {
         i = i + 1;
     }
 
-    // Draw players (back to front)
+    // Draw players and ball interleaved by Y
+    var ball_drawn = 0;
+    var ballp: *i64 = _ball;
+    var ball_y = *(ballp + 1);
+
     i = 0;
     while (i < _player_count) {
         var p = load64(&sorted + i * 8);
+        var pp: *i64 = p;
+        var py = *(pp + 1);
+
+        // Draw ball before this player if ball is behind them
+        if (ball_drawn == 0) {
+            if (ball_y <= py) {
+                ball_draw(_ball);
+                ball_drawn = 1;
+            }
+        }
+
         player_draw(p);
         i = i + 1;
     }
 
-    // Draw active player indicator (small marker above head)
+    // Draw ball if not yet drawn (in front of all players)
+    if (ball_drawn == 0) {
+        ball_draw(_ball);
+    }
+
+    // Active player indicator
     var active = load64(&_players + _active_player * 8);
-    var act_ptr: *i64 = active;
-    var ax = *act_ptr;
-    var ay = *(act_ptr + 1);
+    var act_p: *i64 = active;
+    var ax = *act_p;
+    var ay = *(act_p + 1);
     var sx = court_game_to_screen_x(ax, ay);
     var sy = court_game_to_screen_y(ay);
     var scale = court_scale_at_y(ay);
-    var draw_h = asr_player(PLAYER_SPRITE_H * scale, 16);
-    // Small white triangle above head
-    fb_set(sx, sy - draw_h - 4, 8);
-    fb_set(sx - 1, sy - draw_h - 3, 8);
-    fb_set(sx + 1, sy - draw_h - 3, 8);
-    fb_set(sx - 2, sy - draw_h - 2, 8);
-    fb_set(sx, sy - draw_h - 2, 8);
-    fb_set(sx + 2, sy - draw_h - 2, 8);
+    var dh = asr_player(PLAYER_SPRITE_H * scale, 16);
+    fb_set(sx, sy - dh - 4, 8);
+    fb_set(sx - 1, sy - dh - 3, 8);
+    fb_set(sx + 1, sy - dh - 3, 8);
 
-    // HUD placeholder: version text at top
-    // (Full HUD in v0.2.0)
+    // Fire indicator
+    hud_draw_fire(active);
+
+    // HUD
+    var gp: *i64 = _game;
+    hud_draw(
+        *(gp + 4),      // home_score
+        *(gp + 5),      // away_score
+        *(gp + 1),      // quarter
+        game_clock_seconds(_game),
+        game_shot_clock_seconds(_game),
+        &_players,
+        _player_count
+    );
 }
 
 // --- Frame timing ---
 
 fn sleep_ns(ns) {
-    // nanosleep syscall
-    // struct timespec { long tv_sec; long tv_nsec; }
     var ts[2];
-    store64(&ts, ns / 1000000000);         // seconds
-    store64(&ts + 8, ns - (ns / 1000000000) * 1000000000);  // nanoseconds
-    syscall(35, &ts, 0);   // SYS_NANOSLEEP
+    store64(&ts, ns / 1000000000);
+    store64(&ts + 8, ns - (ns / 1000000000) * 1000000000);
+    syscall(35, &ts, 0);
 }
 
 fn get_time_ns() {
-    // clock_gettime(CLOCK_MONOTONIC, &ts)
     var ts[2];
-    syscall(228, 1, &ts, 0);   // SYS_CLOCK_GETTIME, CLOCK_MONOTONIC
+    syscall(228, 1, &ts, 0);
     return load64(&ts) * 1000000000 + load64(&ts + 8);
 }
 
@@ -199,7 +308,6 @@ fn get_time_ns() {
 fn main() {
     args_init();
 
-    // Check for --ppm flag
     if (argc() > 1) {
         var arg = argv(1);
         if (streq(arg, "--ppm") == 1) {
@@ -207,63 +315,72 @@ fn main() {
         }
     }
 
-    game_init();
+    game_init_all();
 
-    println("cyrius-nba-jam v0.1.0");
+    println("cyrius-nba-jam v0.2.0");
 
     if (_ppm_mode == 1) {
-        // PPM mode: render one frame and save screenshot
-        game_render();
+        game_render_all();
         render_write_ppm("/tmp/nba-jam.ppm");
-
         var pixels = render_pixel_count();
-        println("wrote /tmp/nba-jam.ppm");
-        print("pixels: ");
+        print("wrote /tmp/nba-jam.ppm — pixels: ");
         fmt_int(pixels);
         print("/");
         fmt_int(SCREEN_W * SCREEN_H);
         println("");
-
         return 0;
     }
 
-    // Interactive mode
     input_init();
     println("BOOMSHAKALAKA!");
-    println("controls: WASD/arrows=move, space=shoot, z=pass, x=turbo, p=screenshot, q=quit");
+    println("WASD=move  SPACE=shoot  Z=pass  X=turbo  P=screenshot  Q=quit");
 
-    var target_ns = 16666667;    // 60fps = 16.667ms
+    var target_ns = 16666667;
 
     while (_running == 1) {
-        var frame_start = get_time_ns();
+        var t0 = get_time_ns();
 
-        // Input
         input_poll();
         if (input_quit() == 1) { _running = 0; }
 
-        // Screenshot
         if (input_screenshot() == 1) {
-            game_render();
+            game_render_all();
             render_write_ppm("/tmp/nba-jam.ppm");
             println("screenshot: /tmp/nba-jam.ppm");
         }
 
-        // Update
-        game_update();
+        if (game_is_over(_game) == 1) {
+            _running = 0;
+        }
 
-        // Render
-        game_render();
+        game_update_all();
+        game_render_all();
 
-        // Frame timing
-        var frame_end = get_time_ns();
-        var elapsed = frame_end - frame_start;
+        var elapsed = get_time_ns() - t0;
         if (elapsed < target_ns) {
             sleep_ns(target_ns - elapsed);
         }
     }
 
     input_restore();
-    println("game over");
+
+    // Final score
+    var gp: *i64 = _game;
+    println("");
+    print("FINAL SCORE — HOME: ");
+    fmt_int(*(gp + 4));
+    print("  AWAY: ");
+    fmt_int(*(gp + 5));
+    println("");
+
+    if (*(gp + 4) > *(gp + 5)) {
+        println("HOME WINS!");
+    } elif (*(gp + 5) > *(gp + 4)) {
+        println("AWAY WINS!");
+    } else {
+        println("TIE GAME!");
+    }
+
     return 0;
 }
 

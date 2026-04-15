@@ -1,0 +1,343 @@
+// cyrius-nba-jam — collision.cyr
+// 2D collision detection and response for ball, players, rim, backboard.
+//
+// Collision types:
+//   Ball-Rim:       circle vs circle, bounce with restitution
+//   Ball-Backboard: ball vs vertical plane, reverse horizontal velocity
+//   Ball-Player:    ball vs circle radius, pickup/catch
+//   Player-Player:  circle vs circle, push-back based on Power stat
+//   Ball-Floor:     handled in ball.cyr (z <= 0)
+//   Scoring:        ball passes through rim zone
+
+// --- Constants ---
+
+// Rim geometry (fixed-point 16.16)
+// Left rim at court left, right rim at court right
+var RIM_LEFT_X = 2621440;          // 40.0 — left rim X
+var RIM_RIGHT_X = 18350080;        // 280.0 — right rim X
+var RIM_Y = 4915200;               // 75.0 — rim Y (both baskets)
+var RIM_RADIUS = 196608;           // 3.0 — rim circle radius
+var RIM_Z = 655360;                // 10.0 — rim height
+
+// Backboard
+var BACKBOARD_LEFT_X = 1966080;    // 30.0 — left backboard X
+var BACKBOARD_RIGHT_X = 18874368;  // 288.0 — right backboard X
+var BACKBOARD_TOP_Y = 3932160;     // 60.0
+var BACKBOARD_BOTTOM_Y = 5898240;  // 90.0
+
+// Pickup/catch radius
+var BALL_PICKUP_RADIUS = 393216;   // 6.0
+var PLAYER_COLLISION_RADIUS = 262144;  // 4.0
+
+// Scoring zone
+var SCORE_RADIUS = 131072;         // 2.0 — ball within this of rim center = score
+var SCORE_Z_MIN = 589824;          // 9.0 — ball must be near rim height
+var SCORE_Z_MAX = 720896;          // 11.0
+
+fn asr_col(v, n) {
+    if (v < 0) { return 0 - ((0 - v) >> n); }
+    return v >> n;
+}
+
+// --- Distance (squared, pre-shifted to avoid overflow) ---
+
+fn dist_sq(x1, y1, x2, y2) {
+    var dx = asr_col(x2 - x1, 4);
+    var dy = asr_col(y2 - y1, 4);
+    return dx * dx + dy * dy;
+}
+
+fn radius_sq(r) {
+    var rs = asr_col(r, 4);
+    return rs * rs;
+}
+
+// --- Ball-Rim collision ---
+
+fn collision_ball_rim(ball) {
+    var bp: *i64 = ball;
+    var bx = *bp;
+    var by = *(bp + 1);
+    var bz = *(bp + 2);
+    var state = *(bp + 6);
+
+    if (state != BALL_FLIGHT) { return; }
+
+    // Only check if ball is near rim height
+    var z_diff = bz - RIM_Z;
+    if (z_diff < 0) { z_diff = 0 - z_diff; }
+    if (z_diff > 196608) { return; }  // > 3.0 from rim height, skip
+
+    // Check left rim
+    var d2_left = dist_sq(bx, by, RIM_LEFT_X, RIM_Y);
+    var r2 = radius_sq(RIM_RADIUS);
+
+    if (d2_left <= r2) {
+        ball_rim_bounce(ball, RIM_LEFT_X, RIM_Y);
+        return;
+    }
+
+    // Check right rim
+    var d2_right = dist_sq(bx, by, RIM_RIGHT_X, RIM_Y);
+    if (d2_right <= r2) {
+        ball_rim_bounce(ball, RIM_RIGHT_X, RIM_Y);
+        return;
+    }
+}
+
+fn ball_rim_bounce(ball, rim_x, rim_y) {
+    var bp: *i64 = ball;
+    var bx = *bp;
+    var by = *(bp + 1);
+
+    // Push ball out of rim and reflect velocity
+    var dx = bx - rim_x;
+    var dy = by - rim_y;
+
+    // Reflect velocity along the collision normal (dx, dy)
+    var vx = *(bp + 3);
+    var vy = *(bp + 4);
+    var vz = *(bp + 5);
+
+    // Simple approach: reverse the velocity component toward the rim
+    // and apply restitution
+    if (dx != 0) {
+        if ((dx > 0) == (vx < 0)) {
+            // Moving toward rim — reverse
+            vx = 0 - asr_col(vx * BALL_RIM_RESTITUTION, 16);
+        }
+    }
+    if (dy != 0) {
+        if ((dy > 0) == (vy < 0)) {
+            vy = 0 - asr_col(vy * BALL_RIM_RESTITUTION, 16);
+        }
+    }
+
+    // Dampen vertical velocity too
+    vz = asr_col(vz * BALL_RIM_RESTITUTION, 16);
+
+    *(bp + 3) = vx;
+    *(bp + 4) = vy;
+    *(bp + 5) = vz;
+
+    // Push ball to rim edge
+    // Normalize push direction (simplified: use dominant axis)
+    var abs_dx = dx;
+    if (abs_dx < 0) { abs_dx = 0 - abs_dx; }
+    var abs_dy = dy;
+    if (abs_dy < 0) { abs_dy = 0 - abs_dy; }
+
+    if (abs_dx > abs_dy) {
+        if (dx > 0) { *bp = rim_x + RIM_RADIUS; }
+        else { *bp = rim_x - RIM_RADIUS; }
+    } else {
+        if (dy > 0) { *(bp + 1) = rim_y + RIM_RADIUS; }
+        else { *(bp + 1) = rim_y - RIM_RADIUS; }
+    }
+}
+
+// --- Ball-Backboard collision ---
+
+fn collision_ball_backboard(ball) {
+    var bp: *i64 = ball;
+    var bx = *bp;
+    var by = *(bp + 1);
+    var bz = *(bp + 2);
+    var state = *(bp + 6);
+
+    if (state != BALL_FLIGHT) { return; }
+
+    // Ball must be at rim height or above
+    if (bz < RIM_Z - 131072) { return; }  // below rim - 2.0
+
+    // Check left backboard
+    if (bx <= BACKBOARD_LEFT_X) {
+        if (by >= BACKBOARD_TOP_Y) {
+            if (by <= BACKBOARD_BOTTOM_Y) {
+                // Hit left backboard — reverse X velocity
+                *bp = BACKBOARD_LEFT_X + 65536;  // push out by 1.0
+                var vx = *(bp + 3);
+                if (vx < 0) {
+                    *(bp + 3) = 0 - asr_col(vx * BALL_BACKBOARD_RESTITUTION, 16);
+                }
+            }
+        }
+    }
+
+    // Check right backboard
+    if (bx >= BACKBOARD_RIGHT_X) {
+        if (by >= BACKBOARD_TOP_Y) {
+            if (by <= BACKBOARD_BOTTOM_Y) {
+                *bp = BACKBOARD_RIGHT_X - 65536;
+                var vx = *(bp + 3);
+                if (vx > 0) {
+                    *(bp + 3) = 0 - asr_col(vx * BALL_BACKBOARD_RESTITUTION, 16);
+                }
+            }
+        }
+    }
+}
+
+// --- Scoring detection ---
+
+fn collision_check_score(ball) {
+    // Returns: 0 = no score, 2 = two-pointer, 3 = three-pointer
+    var bp: *i64 = ball;
+    var bx = *bp;
+    var by = *(bp + 1);
+    var bz = *(bp + 2);
+    var vz = *(bp + 5);
+    var state = *(bp + 6);
+
+    if (state != BALL_FLIGHT) { return 0; }
+
+    // Ball must be falling (vz < 0) and near rim height
+    if (vz >= 0) { return 0; }
+    if (bz < SCORE_Z_MIN) { return 0; }
+    if (bz > SCORE_Z_MAX) { return 0; }
+
+    // Check left rim
+    var d2_left = dist_sq(bx, by, RIM_LEFT_X, RIM_Y);
+    var sr2 = radius_sq(SCORE_RADIUS);
+    if (d2_left <= sr2) {
+        ball_mark_scored(ball);
+        return collision_point_value(bx, by, RIM_LEFT_X);
+    }
+
+    // Check right rim
+    var d2_right = dist_sq(bx, by, RIM_RIGHT_X, RIM_Y);
+    if (d2_right <= sr2) {
+        ball_mark_scored(ball);
+        return collision_point_value(bx, by, RIM_RIGHT_X);
+    }
+
+    return 0;
+}
+
+fn collision_point_value(ball_x, ball_y, rim_x) {
+    // Determine if shot was a 2 or 3 pointer based on shooter's distance
+    // For now, simplified: if ball came from far away = 3, close = 2
+    // Real implementation will check the shooter's launch position
+    // stored in last_shooter
+    return 2;   // default to 2, will refine with shooter tracking
+}
+
+// --- Ball-Player collision (pickup) ---
+
+fn collision_ball_player(ball, player) {
+    var bp: *i64 = ball;
+    var state = *(bp + 6);
+
+    // Only pick up loose balls (BOUNCE state or FLIGHT near floor)
+    if (state == BALL_HELD) { return 0; }
+    if (state == BALL_SCORED) { return 0; }
+    if (state == BALL_DEAD) { return 0; }
+
+    var bz = *(bp + 2);
+    // Ball must be near floor to pick up (below 8.0)
+    if (bz > 524288) { return 0; }  // 8.0 in fixed-point
+
+    var bx = *bp;
+    var by = *(bp + 1);
+
+    var pp: *i64 = player;
+    var px = *pp;
+    var py = *(pp + 1);
+
+    var d2 = dist_sq(bx, by, px, py);
+    var r2 = radius_sq(BALL_PICKUP_RADIUS);
+
+    if (d2 <= r2) {
+        ball_give_to(ball, player);
+        return 1;
+    }
+    return 0;
+}
+
+// --- Player-Player collision ---
+
+fn collision_player_player(p1, p2) {
+    var a: *i64 = p1;
+    var b: *i64 = p2;
+
+    var ax = *a;
+    var ay = *(a + 1);
+    var bx = *b;
+    var by = *(b + 1);
+
+    var d2 = dist_sq(ax, ay, bx, by);
+    var r2 = radius_sq(PLAYER_COLLISION_RADIUS * 2);  // sum of both radii
+
+    if (d2 > r2) { return; }
+
+    // Push apart based on Power stat
+    var power_a = *(a + 18);
+    var power_b = *(b + 18);
+    var total_power = power_a + power_b;
+    if (total_power == 0) { total_power = 1; }
+
+    // Push direction
+    var dx = bx - ax;
+    var dy = by - ay;
+
+    // Normalize (simplified: push along dominant axis)
+    var abs_dx = dx;
+    if (abs_dx < 0) { abs_dx = 0 - abs_dx; }
+    var abs_dy = dy;
+    if (abs_dy < 0) { abs_dy = 0 - abs_dy; }
+
+    var push = 32768;   // 0.5 base push distance
+
+    if (abs_dx >= abs_dy) {
+        // Push along X
+        var push_a = push * power_b / total_power;
+        var push_b = push * power_a / total_power;
+        if (dx > 0) {
+            *a = ax - push_a;
+            *b = bx + push_b;
+        } else {
+            *a = ax + push_a;
+            *b = bx - push_b;
+        }
+    } else {
+        // Push along Y
+        var push_a = push * power_b / total_power;
+        var push_b = push * power_a / total_power;
+        if (dy > 0) {
+            *(a + 1) = ay - push_a;
+            *(b + 1) = by + push_b;
+        } else {
+            *(a + 1) = ay + push_a;
+            *(b + 1) = by - push_b;
+        }
+    }
+}
+
+// --- Run all collision checks for a frame ---
+
+fn collision_update(ball, players, player_count) {
+    // Ball vs rim and backboard
+    collision_ball_rim(ball);
+    collision_ball_backboard(ball);
+
+    // Ball vs players (pickup)
+    var i = 0;
+    while (i < player_count) {
+        var p = load64(players + i * 8);
+        collision_ball_player(ball, p);
+        i = i + 1;
+    }
+
+    // Player vs player (all pairs)
+    i = 0;
+    while (i < player_count - 1) {
+        var j = i + 1;
+        while (j < player_count) {
+            var pa = load64(players + i * 8);
+            var pb = load64(players + j * 8);
+            collision_player_player(pa, pb);
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+}

@@ -1,0 +1,197 @@
+// cyrius-nba-jam — hud.cyr
+// Heads-up display: scoreboard, shot clock, turbo meters, player names.
+// Drawn on top of the game scene (last render pass).
+//
+// Layout (320x240):
+//   Top bar (y=0-15):   HOME score | quarter/clock | AWAY score
+//   Turbo meters (y=220-235): 4 bars, one per player
+//   Shot clock (centered, y=16-24): countdown display
+
+// --- Digit rendering ---
+// 3x5 pixel font for score digits. Each digit is a bitmask.
+// Row-major, MSB first: bit 2 = left pixel, bit 1 = mid, bit 0 = right.
+
+var _digit_font[50];   // 10 digits * 5 rows = 50 entries
+
+fn hud_init_font() {
+    var d = &_digit_font;
+    // 0: 111 / 101 / 101 / 101 / 111
+    store64(d + 0, 7); store64(d + 8, 5); store64(d + 16, 5); store64(d + 24, 5); store64(d + 32, 7);
+    // 1: 010 / 110 / 010 / 010 / 111
+    store64(d + 40, 2); store64(d + 48, 6); store64(d + 56, 2); store64(d + 64, 2); store64(d + 72, 7);
+    // 2: 111 / 001 / 111 / 100 / 111
+    store64(d + 80, 7); store64(d + 88, 1); store64(d + 96, 7); store64(d + 104, 4); store64(d + 112, 7);
+    // 3: 111 / 001 / 111 / 001 / 111
+    store64(d + 120, 7); store64(d + 128, 1); store64(d + 136, 7); store64(d + 144, 1); store64(d + 152, 7);
+    // 4: 101 / 101 / 111 / 001 / 001
+    store64(d + 160, 5); store64(d + 168, 5); store64(d + 176, 7); store64(d + 184, 1); store64(d + 192, 1);
+    // 5: 111 / 100 / 111 / 001 / 111
+    store64(d + 200, 7); store64(d + 208, 4); store64(d + 216, 7); store64(d + 224, 1); store64(d + 232, 7);
+    // 6: 111 / 100 / 111 / 101 / 111
+    store64(d + 240, 7); store64(d + 248, 4); store64(d + 256, 7); store64(d + 264, 5); store64(d + 272, 7);
+    // 7: 111 / 001 / 001 / 001 / 001
+    store64(d + 280, 7); store64(d + 288, 1); store64(d + 296, 1); store64(d + 304, 1); store64(d + 312, 1);
+    // 8: 111 / 101 / 111 / 101 / 111
+    store64(d + 320, 7); store64(d + 328, 5); store64(d + 336, 7); store64(d + 344, 5); store64(d + 352, 7);
+    // 9: 111 / 101 / 111 / 001 / 111
+    store64(d + 360, 7); store64(d + 368, 5); store64(d + 376, 7); store64(d + 384, 1); store64(d + 392, 7);
+}
+
+fn hud_draw_digit(digit, x, y, color, scale) {
+    if (digit < 0) { digit = 0; }
+    if (digit > 9) { digit = 9; }
+
+    var base = &_digit_font + digit * 5 * 8;    // 5 rows per digit
+
+    var row = 0;
+    while (row < 5) {
+        var bits = load64(base + row * 8);
+        var col = 0;
+        while (col < 3) {
+            var bit = (bits >> (2 - col)) & 1;
+            if (bit == 1) {
+                // Draw scaled pixel
+                var px = x + col * scale;
+                var py = y + row * scale;
+                var sr = 0;
+                while (sr < scale) {
+                    var sc = 0;
+                    while (sc < scale) {
+                        fb_set(px + sc, py + sr, color);
+                        sc = sc + 1;
+                    }
+                    sr = sr + 1;
+                }
+            }
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+fn hud_draw_number(num, x, y, color, scale) {
+    // Draw a number (0-999) right-aligned at position
+    if (num < 0) { num = 0; }
+
+    var hundreds = num / 100;
+    var tens = (num / 10) - hundreds * 10;
+    var ones = num - (num / 10) * 10;
+
+    var digit_w = 3 * scale + scale;   // 3px wide + 1px gap
+
+    if (hundreds > 0) {
+        hud_draw_digit(hundreds, x, y, color, scale);
+        hud_draw_digit(tens, x + digit_w, y, color, scale);
+        hud_draw_digit(ones, x + digit_w * 2, y, color, scale);
+    } elif (tens > 0) {
+        hud_draw_digit(tens, x + digit_w, y, color, scale);
+        hud_draw_digit(ones, x + digit_w * 2, y, color, scale);
+    } else {
+        hud_draw_digit(ones, x + digit_w * 2, y, color, scale);
+    }
+}
+
+// --- HUD components ---
+
+fn hud_draw(home_score, away_score, quarter, game_clock, shot_clock, players, player_count) {
+    hud_init_font();
+
+    // Top bar background
+    draw_rect(0, 0, SCREEN_W, 16, 46);    // dark background
+
+    // Home score (left side)
+    hud_draw_number(home_score, 10, 3, 41, 2);    // yellow, 2x scale
+
+    // "Q" + quarter number (center-left)
+    hud_draw_digit(0, 130, 4, 40, 1);    // placeholder Q
+    hud_draw_digit(quarter, 140, 3, 40, 2);
+
+    // Game clock (center)
+    var minutes = game_clock / 60;
+    var seconds = game_clock - minutes * 60;
+    hud_draw_number(minutes, 155, 3, 40, 2);
+    // Colon
+    fb_set(172, 5, 40);
+    fb_set(172, 9, 40);
+    // Seconds (zero-padded)
+    hud_draw_digit(seconds / 10, 176, 3, 40, 2);
+    hud_draw_digit(seconds - (seconds / 10) * 10, 184, 3, 40, 2);
+
+    // Away score (right side)
+    hud_draw_number(away_score, 260, 3, 41, 2);
+
+    // Shot clock (below top bar, centered)
+    if (shot_clock < 10) {
+        // Red when low
+        hud_draw_number(shot_clock, 152, 18, 42, 2);
+    } else {
+        hud_draw_number(shot_clock, 148, 18, 40, 1);
+    }
+
+    // Turbo meters (bottom of screen)
+    hud_draw_turbo_meters(players, player_count);
+}
+
+fn hud_draw_turbo_meters(players, player_count) {
+    // Bottom bar background
+    draw_rect(0, 224, SCREEN_W, 16, 46);
+
+    var meter_w = 60;
+    var meter_h = 6;
+    var gap = 20;
+    var start_x = (SCREEN_W - (meter_w * player_count + gap * (player_count - 1))) / 2;
+
+    var i = 0;
+    while (i < player_count) {
+        var p = load64(players + i * 8);
+        var pp: *i64 = p;
+        var turbo = *(pp + 11);
+        var team = *(pp + 7);
+
+        var x = start_x + i * (meter_w + gap);
+        var y = 228;
+
+        // Outline
+        draw_rect_outline(x, y, meter_w, meter_h, 45);
+
+        // Fill based on turbo level
+        var fill_w = turbo * (meter_w - 2) / TURBO_MAX;
+        if (fill_w < 0) { fill_w = 0; }
+
+        var fill_color = 43;   // green
+        if (turbo < 30) { fill_color = 42; }   // red when low
+        elif (turbo < 60) { fill_color = 41; } // yellow when mid
+
+        if (fill_w > 0) {
+            draw_rect(x + 1, y + 1, fill_w, meter_h - 2, fill_color);
+        }
+
+        // Player indicator: home or away color dot
+        var dot_color = 16;    // home blue
+        if (team == TEAM_AWAY) { dot_color = 24; }  // away red
+        fb_set(x - 3, y + 2, dot_color);
+        fb_set(x - 2, y + 2, dot_color);
+        fb_set(x - 3, y + 3, dot_color);
+        fb_set(x - 2, y + 3, dot_color);
+
+        i = i + 1;
+    }
+}
+
+// --- Fire indicator ---
+
+fn hud_draw_fire(player) {
+    var pp: *i64 = player;
+    var on_fire = *(pp + 10);
+
+    if (on_fire != 1) { return; }
+
+    // Flash "FIRE" text at the top of the screen
+    // Simple: draw colored bar that alternates
+    var flash = (_frame_count / 4) & 1;
+    if (flash == 1) {
+        draw_rect(100, 16, 120, 8, 48);   // fire yellow bar
+    } else {
+        draw_rect(100, 16, 120, 8, 50);   // fire red-orange bar
+    }
+}

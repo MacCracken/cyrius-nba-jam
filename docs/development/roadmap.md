@@ -29,13 +29,17 @@ The ball is the game.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | ball.cyr — parabolic trajectory, gravity | Not started | Fixed-point arc math |
-| 2 | shoot.cyr — shot mechanic, accuracy based on stats | Not started | Distance + defender proximity → probability |
-| 3 | collision.cyr — ball-rim, ball-backboard bounce | Not started | Restitution coefficient, rim geometry |
-| 4 | hud.cyr — score display, shot clock | Not started | |
-| 5 | game.cyr — possession, scoring, basic quarter | Not started | |
+| 1 | ball.cyr — 3D ball entity (x,y,z), semi-implicit Euler, gravity | Done | 303 lines. 5 states (HELD/FLIGHT/BOUNCE/SCORED/DEAD), floor bounce with restitution, air drag, holder tracking |
+| 2 | collision.cyr — ball-rim, ball-backboard, ball-player, player-player | Done | 343 lines. Circle collision with pre-shifted dist_sq, rim bounce, backboard reflection, pickup radius, power-weighted push-back |
+| 3 | shoot.cyr — shot trajectory, accuracy model, make/miss | Done | 227 lines. PCG PRNG, trajectory from physics (gravity compensation + arc height), stat-driven accuracy with distance penalty, miss perturbation, three-point detection |
+| 4 | hud.cyr — scoreboard, shot clock, turbo meters, fire indicator | Done | 197 lines. 3x5 bitmap font, digit rendering with scale, score/quarter/clock display, per-player turbo bars, fire flash |
+| 5 | game.cyr — game state machine, possession, scoring, quarters, fire | Done | 319 lines. TIPOFF→PLAYING→HALFTIME→GAMEOVER flow, shot clock (24s), quarter clock (3:00), scoring with possession change, fire activation/extinguishment, turnovers |
+| 6 | main.cyr — integrated game loop with all systems | Done | 388 lines. Shoot/pass input handling, ball-player interleaved depth sort, fire indicator, final score display |
 
-**Exit criteria**: Player can shoot the ball, it arcs, hits/misses the rim, score updates.
+**Lines**: 3255 source + 546 test = 3801 total across 12 modules + test suite.
+**Tests**: 40 assertions across all systems (ball, collision, shooting, game state, HUD, + all v0.1.0 tests).
+
+**Exit criteria**: Player can shoot the ball, it arcs, hits/misses the rim, score updates. ✓
 
 ## v0.3.0 — Two Players and Passing
 
