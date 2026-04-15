@@ -25,7 +25,9 @@ enum GameState {
     STATE_HALFTIME = 4,
     STATE_OVERTIME = 5,
     STATE_GAMEOVER = 6,
-    STATE_ATTRACT = 7
+    STATE_ATTRACT = 7,
+    STATE_INBOUND = 8,
+    STATE_FOUL = 9
 }
 
 // Player state machine

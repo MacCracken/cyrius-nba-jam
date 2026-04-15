@@ -4,8 +4,8 @@
 // Reference: historicalsource/nba-jam (TMS34010 assembly)
 // All code is new Cyrius — the original is design reference only.
 //
-// v0.5.0: Drone AI, ball physics, shooting, collision, HUD, game state.
-// Full 2-on-2 with AI opponents and AI teammate.
+// v0.6.0: Game flow polish — inbound, rebound, clutch, fouls, auto-switch.
+// Full 2-on-2 with AI opponents, uninterrupted game loop.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -38,6 +38,7 @@ var _ppm_mode = 0;
 
 var _ball = 0;
 var _game = 0;
+var _last_possession = 0;        // track possession changes for auto-switch
 
 // Sprite buffers
 var _sprite_buf_home1 = 0;
@@ -104,6 +105,7 @@ fn game_init_all() {
     _active_player = 0;
     _frame_count = 0;
     _running = 1;
+    _last_possession = TEAM_HOME;
 
     // Seed shoot RNG with frame count + arbitrary value
     shoot_rng_seed(98765);
@@ -301,6 +303,15 @@ fn game_update_all() {
     // Run collisions
     collision_update(_ball, &_players, _player_count);
 
+    // Check pushing fouls
+    var foul_team = push_get_foul_team();
+    if (foul_team >= 0) {
+        game_call_foul(_game, foul_team, _ball, &_players, _player_count);
+    }
+
+    // Check rebounds near rim
+    collision_check_rebound(_ball, &_players, _player_count);
+
     // Check pass interception (ball in flight can be intercepted by opponents)
     var ballp: *i64 = _ball;
     var last_shooter = *(ballp + 9);
@@ -312,6 +323,29 @@ fn game_update_all() {
 
     // Update game state (clock, scoring, etc.)
     game_update(_game, _ball, &_players, _player_count);
+
+    // Auto-switch on possession change
+    var gp_check: *i64 = _game;
+    var curr_poss = *(gp_check + 6);
+    if (curr_poss != _last_possession) {
+        _last_possession = curr_poss;
+
+        // If human's team now has possession, switch to nearest teammate
+        var human = load64(&_players + _active_player * 8);
+        var human_p: *i64 = human;
+        var human_team = *(human_p + 7);
+        if (curr_poss == human_team) {
+            var best = game_find_nearest_on_team(_ball, &_players,
+                                                  _player_count, human_team);
+            if (best >= 0) {
+                if (best != _active_player) {
+                    ai_set_active(_active_player, 1);
+                    ai_set_active(best, 0);
+                    _active_player = best;
+                }
+            }
+        }
+    }
 
     _frame_count = _frame_count + 1;
 }
@@ -438,7 +472,7 @@ fn main() {
 
     game_init_all();
 
-    println("cyrius-nba-jam v0.5.0");
+    println("cyrius-nba-jam v0.6.0");
 
     if (_ppm_mode == 1) {
         game_render_all();

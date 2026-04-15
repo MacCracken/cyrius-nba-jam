@@ -1,6 +1,7 @@
 // cyrius-nba-jam — test suite
-// v0.5.0: Tests for physics, fire, stats, render, sprite, court,
-// player, ball, collision, shooting, dunks, game state, HUD, AI.
+// v0.6.0: Tests for physics, fire, stats, render, sprite, court,
+// player, ball, collision, shooting, dunks, game state, HUD, AI,
+// inbound, rebound, clutch, fouls.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -971,6 +972,223 @@ fn test_ai_is_player_open() {
     return 0;
 }
 
+// ========= Inbound =========
+
+fn test_inbound_after_dead_ball() {
+    var g = game_new();
+    var gp: *i64 = g;
+    *gp = STATE_PLAYING;
+    *(gp + 6) = TEAM_HOME;    // home possession
+
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var p2 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
+    var players[2];
+    store64(&players, p1);
+    store64(&players + 8, p2);
+
+    var b = ball_new(6553600, 8519680);
+
+    game_start_inbound(g, b, &players, 2);
+
+    assert_eq(*gp, STATE_INBOUND, "dead ball triggers inbound state");
+    assert(*(gp + 7) > 0, "inbound has timer");
+    return 0;
+}
+
+fn test_inbound_gives_ball_to_team() {
+    var g = game_new();
+    var gp: *i64 = g;
+    *(gp + 6) = TEAM_AWAY;    // away receives
+
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var p2 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
+    var players[2];
+    store64(&players, p1);
+    store64(&players + 8, p2);
+
+    var b = ball_new(6553600, 8519680);
+    game_start_inbound(g, b, &players, 2);
+
+    var bp: *i64 = b;
+    assert_eq(*(bp + 6), BALL_HELD, "ball held after inbound");
+
+    var p2p: *i64 = p2;
+    assert_eq(*(p2p + 9), 1, "away player has ball after inbound");
+    return 0;
+}
+
+fn test_inbound_timer_resumes_play() {
+    var g = game_new();
+    var gp: *i64 = g;
+    *gp = STATE_INBOUND;
+    *(gp + 7) = 1;            // 1 frame left
+
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var players[1];
+    store64(&players, p1);
+    var b = ball_new(6553600, 8519680);
+
+    game_update_inbound(g, b, &players, 1);
+    assert_eq(*gp, STATE_PLAYING, "inbound timer expires -> playing");
+    return 0;
+}
+
+// ========= Rebound =========
+
+fn test_rebound_near_rim() {
+    // Ball bouncing near rim, two players nearby — one should get it
+    var b = ball_new(RIM_RIGHT_X, RIM_Y);
+    var bp: *i64 = b;
+    *(bp + 6) = BALL_BOUNCE;
+    *(bp + 2) = 131072;       // z = 2.0 (low, grabbable)
+
+    var p1 = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 196608, RIM_Y);
+    player_set_stats(p1, 5, 5, 5, 5, 5, 5, 5, 5, 9);   // high rebound
+
+    var p2 = player_new(TEAM_AWAY, 0, RIM_RIGHT_X + 196608, RIM_Y);
+    player_set_stats(p2, 5, 5, 5, 5, 5, 5, 5, 5, 2);   // low rebound
+
+    var players[2];
+    store64(&players, p1);
+    store64(&players + 8, p2);
+
+    _rebound_rng = 12345;
+    var winner = collision_check_rebound(b, &players, 2);
+    assert(winner != 0, "someone wins the rebound near rim");
+    assert_eq(*(bp + 6), BALL_HELD, "ball held after rebound");
+    return 0;
+}
+
+fn test_rebound_far_from_rim() {
+    // Ball bouncing far from rim — no rebound contest
+    var b = ball_new(6553600, 8519680);    // far from both rims
+    var bp: *i64 = b;
+    *(bp + 6) = BALL_BOUNCE;
+    *(bp + 2) = 131072;
+
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var players[1];
+    store64(&players, p1);
+
+    var winner = collision_check_rebound(b, &players, 1);
+    assert_eq(winner, 0, "no rebound far from rim");
+    return 0;
+}
+
+// ========= Clutch =========
+
+fn test_clutch_boosts_stats() {
+    var g = game_new();
+
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    player_set_stats(p1, 5, 5, 5, 5, 5, 5, 5, 8, 5);   // clutch = 8
+    var pp: *i64 = p1;
+    var shooting_before = *(pp + 19);
+
+    var players[1];
+    store64(&players, p1);
+
+    game_apply_clutch(g, &players, 1);
+
+    assert(*(pp + 19) > shooting_before, "clutch boosts shooting");
+    assert(*(pp + 17) > 5, "clutch boosts speed");
+    return 0;
+}
+
+fn test_clutch_capped_at_10() {
+    var g = game_new();
+
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    player_set_stats(p1, 10, 5, 10, 5, 10, 10, 5, 10, 5);   // max stats, high clutch
+    var pp: *i64 = p1;
+
+    var players[1];
+    store64(&players, p1);
+
+    game_apply_clutch(g, &players, 1);
+
+    assert_eq(*(pp + 19), 10, "shooting capped at 10 after clutch");
+    assert_eq(*(pp + 17), 10, "speed capped at 10 after clutch");
+    return 0;
+}
+
+// ========= Fouls =========
+
+fn test_foul_changes_possession() {
+    var g = game_new();
+    var gp: *i64 = g;
+    *gp = STATE_PLAYING;
+    *(gp + 6) = TEAM_HOME;
+
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var p2 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
+    var players[2];
+    store64(&players, p1);
+    store64(&players + 8, p2);
+
+    var b = ball_new(6553600, 8519680);
+    ball_give_to(b, p1);
+
+    // Home commits foul
+    game_call_foul(g, TEAM_HOME, b, &players, 2);
+
+    assert_eq(*gp, STATE_FOUL, "foul triggers foul state");
+    assert_eq(*(gp + 6), TEAM_AWAY, "foul gives possession to fouled team");
+    assert_eq(*(gp + 13), 1, "home foul count incremented");
+    return 0;
+}
+
+fn test_push_foul_detection() {
+    push_init();
+    _push_init_done = 0;   // force re-init
+    push_init();
+
+    // Simulate repeated pushes
+    var i = 0;
+    var foul = 0;
+    while (i < PUSH_FOUL_THRESHOLD) {
+        foul = push_record(0, 2, TEAM_HOME);
+        i = i + 1;
+    }
+    assert_eq(foul, 1, "repeated pushes trigger foul");
+    assert_eq(push_get_foul_team(), TEAM_HOME, "foul team is the pusher");
+    return 0;
+}
+
+// ========= Auto-switch =========
+
+fn test_auto_switch_find_nearest() {
+    var b = ball_new(14417920, 8519680);    // ball at (220, 130)
+
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);     // (100, 130) — far
+    var p2 = player_new(TEAM_HOME, 1, 13107200, 8519680);    // (200, 130) — near ball
+    var p3 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
+    var players[3];
+    store64(&players, p1);
+    store64(&players + 8, p2);
+    store64(&players + 16, p3);
+
+    var idx = game_find_nearest_on_team(b, &players, 3, TEAM_HOME);
+    assert_eq(idx, 1, "nearest home player to ball is index 1");
+    return 0;
+}
+
+// ========= PS_REBOUND state =========
+
+fn test_rebound_is_committed() {
+    assert_eq(player_is_committed(PS_REBOUND), 1, "REBOUND is committed state");
+    return 0;
+}
+
+fn test_rebound_timer() {
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    player_try_transition(p, PS_REBOUND);
+    var pp: *i64 = p;
+    assert_eq(*(pp + 4), PS_REBOUND, "entered rebound state");
+    assert_eq(*(pp + 6), REBOUND_FRAMES, "rebound timer set");
+    return 0;
+}
+
 // ========= Integration =========
 
 fn test_court_render_pixels() {
@@ -1108,6 +1326,30 @@ fn main() {
     test_ai_adjust_prob_difficulty();
     test_ai_direction_to();
     test_ai_is_player_open();
+
+    // Inbound
+    test_inbound_after_dead_ball();
+    test_inbound_gives_ball_to_team();
+    test_inbound_timer_resumes_play();
+
+    // Rebound
+    test_rebound_near_rim();
+    test_rebound_far_from_rim();
+
+    // Clutch
+    test_clutch_boosts_stats();
+    test_clutch_capped_at_10();
+
+    // Fouls
+    test_foul_changes_possession();
+    test_push_foul_detection();
+
+    // Auto-switch
+    test_auto_switch_find_nearest();
+
+    // PS_REBOUND
+    test_rebound_is_committed();
+    test_rebound_timer();
 
     // Integration
     test_court_render_pixels();

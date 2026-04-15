@@ -18,6 +18,13 @@ var NUM_QUARTERS = 4;
 var HALFTIME_AFTER = 2;          // halftime after quarter 2
 var TIPOFF_FRAMES = 120;         // 2 seconds tipoff animation
 var GAMEOVER_FRAMES = 300;       // 5 seconds game over display
+var INBOUND_FRAMES = 90;         // 1.5 seconds inbound pause
+var FOUL_FRAMES = 120;           // 2 seconds foul display
+
+// Inbound baseline positions (fixed-point 16.16)
+var INBOUND_HOME_X = 18350080;   // 280.0 — home inbounds at right baseline
+var INBOUND_AWAY_X = 2621440;    // 40.0 — away inbounds at left baseline
+var INBOUND_Y = 6553600;         // 100.0 — midcourt Y for inbound
 
 // --- Game struct ---
 
@@ -34,6 +41,10 @@ struct Game {
     consecutive_home;   // 9: consecutive baskets by home team
     consecutive_away;   // 10: consecutive baskets by away team
     fire_player;        // 11: player pointer who is on fire (or 0)
+    foul_team;          // 12: team that committed the foul
+    home_fouls;         // 13: foul count this quarter (home)
+    away_fouls;         // 14: foul count this quarter (away)
+    clutch_active;      // 15: 1 if clutch time (final 30s)
 }
 
 fn game_new() {
@@ -49,7 +60,11 @@ fn game_new() {
         0,                // last_scorer
         0,                // consecutive_home
         0,                // consecutive_away
-        0                 // fire_player
+        0,                // fire_player
+        0,                // foul_team
+        0,                // home_fouls
+        0,                // away_fouls
+        0                 // clutch_active
     };
     return &g;
 }
@@ -74,6 +89,14 @@ fn game_update(g, ball, players, player_count) {
     }
     if (state == STATE_GAMEOVER) {
         game_update_gameover(g);
+        return;
+    }
+    if (state == STATE_INBOUND) {
+        game_update_inbound(g, ball, players, player_count);
+        return;
+    }
+    if (state == STATE_FOUL) {
+        game_update_foul(g, ball, players, player_count);
         return;
     }
 }
@@ -106,6 +129,14 @@ fn game_update_playing(g, ball, players, player_count) {
         return;
     }
 
+    // Clutch time check — final 30 seconds of quarter
+    if (clock <= 1800) {    // 30 * 60
+        if (*(gp + 15) == 0) {
+            *(gp + 15) = 1;
+            game_apply_clutch(g, players, player_count);
+        }
+    }
+
     // Decrement shot clock
     var shot_clock = *(gp + 3);
     shot_clock = shot_clock - 1;
@@ -121,6 +152,13 @@ fn game_update_playing(g, ball, players, player_count) {
     var scored = collision_check_score(ball);
     if (scored > 0) {
         game_on_score(g, ball, scored, players, player_count);
+        return;
+    }
+
+    // Check for dead ball — transition to inbound
+    var bp: *i64 = ball;
+    if (*(bp + 6) == BALL_DEAD) {
+        game_start_inbound(g, ball, players, player_count);
     }
 }
 
@@ -150,6 +188,9 @@ fn game_update_gameover(g) {
 fn game_end_quarter(g) {
     var gp: *i64 = g;
     var quarter = *(gp + 1);
+
+    // Reset per-quarter state
+    game_reset_quarter_state(g);
 
     if (quarter >= NUM_QUARTERS) {
         // Check for tie → overtime, else gameover
@@ -292,6 +333,177 @@ fn game_turnover(g, ball, players, player_count) {
         }
         i = i + 1;
     }
+}
+
+// --- Inbound ---
+
+fn game_start_inbound(g, ball, players, player_count) {
+    var gp: *i64 = g;
+    *gp = STATE_INBOUND;
+    *(gp + 7) = INBOUND_FRAMES;
+
+    // Position ball at receiving team's baseline
+    var poss = *(gp + 6);
+    var inbound_x = INBOUND_AWAY_X;
+    if (poss == TEAM_HOME) {
+        inbound_x = INBOUND_HOME_X;
+    }
+
+    // Find nearest player on receiving team and give them the ball
+    var receiver = game_find_team_player(players, player_count, poss);
+    if (receiver != 0) {
+        ball_reset(ball, inbound_x, INBOUND_Y);
+        ball_give_to(ball, receiver);
+
+        // Move inbounder to baseline
+        var rp: *i64 = receiver;
+        *rp = inbound_x;
+        *(rp + 1) = INBOUND_Y;
+        *(rp + 2) = 0;     // stop velocity
+        *(rp + 3) = 0;
+    }
+}
+
+fn game_update_inbound(g, ball, players, player_count) {
+    var gp: *i64 = g;
+    var timer = *(gp + 7);
+    timer = timer - 1;
+    *(gp + 7) = timer;
+
+    if (timer <= 0) {
+        // Resume play
+        *gp = STATE_PLAYING;
+        *(gp + 3) = SHOT_CLOCK_FRAMES;  // reset shot clock
+    }
+}
+
+// --- Foul handling ---
+
+fn game_call_foul(g, fouling_team, ball, players, player_count) {
+    var gp: *i64 = g;
+    *gp = STATE_FOUL;
+    *(gp + 7) = FOUL_FRAMES;
+    *(gp + 12) = fouling_team;
+
+    // Increment foul count
+    if (fouling_team == TEAM_HOME) {
+        *(gp + 13) = *(gp + 13) + 1;
+    } else {
+        *(gp + 14) = *(gp + 14) + 1;
+    }
+
+    // Give ball to fouled team
+    var fouled_team = TEAM_AWAY;
+    if (fouling_team == TEAM_AWAY) { fouled_team = TEAM_HOME; }
+    *(gp + 6) = fouled_team;
+
+    // Inbound ball to fouled team
+    game_start_inbound(g, ball, players, player_count);
+    // Override state back to FOUL (start_inbound sets INBOUND)
+    *gp = STATE_FOUL;
+    *(gp + 7) = FOUL_FRAMES;
+}
+
+fn game_update_foul(g, ball, players, player_count) {
+    var gp: *i64 = g;
+    var timer = *(gp + 7);
+    timer = timer - 1;
+    *(gp + 7) = timer;
+
+    if (timer <= 0) {
+        // Resume play after foul
+        *gp = STATE_PLAYING;
+        *(gp + 3) = SHOT_CLOCK_FRAMES;
+    }
+}
+
+// --- Clutch time ---
+// Boost all players' effective stats by their Clutch value / 2
+// Applied once when clutch_active flips to 1
+
+fn game_apply_clutch(g, players, player_count) {
+    var i = 0;
+    while (i < player_count) {
+        var p = load64(players + i * 8);
+        var pp: *i64 = p;
+        var clutch = *(pp + 24);       // stat_clutch
+        var boost = clutch / 2;
+        if (boost < 1) { boost = 1; }
+
+        // Boost shooting, stealing, blocking, speed
+        *(pp + 19) = *(pp + 19) + boost;    // shooting
+        if (*(pp + 19) > 10) { *(pp + 19) = 10; }
+
+        *(pp + 21) = *(pp + 21) + boost;    // stealing
+        if (*(pp + 21) > 10) { *(pp + 21) = 10; }
+
+        *(pp + 22) = *(pp + 22) + boost;    // blocking
+        if (*(pp + 22) > 10) { *(pp + 22) = 10; }
+
+        *(pp + 17) = *(pp + 17) + boost;    // speed
+        if (*(pp + 17) > 10) { *(pp + 17) = 10; }
+
+        i = i + 1;
+    }
+}
+
+fn game_is_clutch(g) {
+    var gp: *i64 = g;
+    return *(gp + 15);
+}
+
+// --- Auto-switch on turnover ---
+// Find the player on the given team who is nearest to the ball
+// and return their index. Used by main.cyr to switch the human player.
+
+fn game_find_nearest_on_team(ball, players, player_count, team) {
+    var bp: *i64 = ball;
+    var bx = *bp;
+    var by = *(bp + 1);
+
+    var best_index = -1;
+    var best_d2 = 2147483647;
+
+    var i = 0;
+    while (i < player_count) {
+        var p = load64(players + i * 8);
+        var pp: *i64 = p;
+        if (*(pp + 7) == team) {
+            var dx = *pp - bx;
+            if (dx < 0) { dx = 0 - dx; }
+            var dy = *(pp + 1) - by;
+            if (dy < 0) { dy = 0 - dy; }
+            var d2 = dx + dy;   // Manhattan distance (fast, good enough)
+            if (d2 < best_d2) {
+                best_d2 = d2;
+                best_index = i;
+            }
+        }
+        i = i + 1;
+    }
+    return best_index;
+}
+
+// --- Find first player on a team ---
+
+fn game_find_team_player(players, player_count, team) {
+    var i = 0;
+    while (i < player_count) {
+        var p = load64(players + i * 8);
+        var pp: *i64 = p;
+        if (*(pp + 7) == team) { return p; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// --- Reset clutch at quarter start ---
+
+fn game_reset_quarter_state(g) {
+    var gp: *i64 = g;
+    *(gp + 15) = 0;     // clutch_active
+    *(gp + 13) = 0;     // home_fouls (reset per quarter)
+    *(gp + 14) = 0;     // away_fouls
 }
 
 // --- Accessors ---

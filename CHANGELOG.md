@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-04-15
+
+### Added
+- **Inbound system** — STATE_INBOUND game state. After scoring, ball enters SCORED (20f) then DEAD. Dead ball now triggers inbound: ball reset to receiving team's baseline, given to nearest team player, 1.5-second pause before play resumes with fresh shot clock. No more stuck dead balls.
+- **Dead ball recovery** — BALL_DEAD state now properly detected in game_update_playing and transitions to inbound flow instead of hanging forever.
+- **Rebounding** — collision_check_rebound contests loose balls near the rim. Players within 8.0 of rim compete based on Rebounding stat (stat * 10 + random 0-50). Winner receives ball and enters committed PS_REBOUND state (20 frames). Rebounding stat (previously defined but unused) now actively affects gameplay.
+- **Clutch stat activation** — Final 30 seconds of each quarter triggers clutch time. All players receive stat boosts: Shooting, Stealing, Blocking, and Speed each gain Clutch/2 points (capped at 10). Applied once per quarter, reset on quarter change. Clutch stat (previously defined but unused) now actively affects gameplay.
+- **Pushing fouls** — Per-pair push counter tracks player-player collisions in a 1.5-second window. 4+ collisions between opposing players triggers a pushing foul. STATE_FOUL game state with 2-second display. Possession awarded to fouled team with inbound. Foul counts tracked per team per quarter, reset on quarter change. Pusher determined by momentum direction toward the other player.
+- **Auto-switch on turnover** — When possession changes (score, turnover, steal), human player automatically switches to the nearest teammate on their team relative to the ball. AI active flags updated accordingly. No more manual C-key switching after every change of possession.
+- **PS_REBOUND committed state** — 20-frame committed animation for rebound grab. Added to player_is_committed and timer assignment.
+- **Game struct expansion** — 4 new fields: foul_team, home_fouls, away_fouls, clutch_active. Quarter state (fouls, clutch) reset via game_reset_quarter_state on quarter transitions.
+- 21 new test assertions (97 total): inbound state/ball/timer, rebound near-rim/far, clutch boost/cap, foul state/possession/count, push foul detection, auto-switch nearest, PS_REBOUND committed/timer
+
+### Project stats
+- 14 source modules, 1 test file
+- 5109 lines of Cyrius source + 1362 lines of tests = 6471 total
+
 ## [0.5.0] — 2026-04-15
 
 ### Added

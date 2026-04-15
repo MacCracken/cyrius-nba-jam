@@ -254,6 +254,87 @@ fn collision_ball_player(ball, player) {
     return 0;
 }
 
+// --- Pushing foul tracking ---
+// Tracks collisions per player pair. Excessive pushing = foul.
+
+var PUSH_FOUL_THRESHOLD = 4;      // collisions in window = foul
+var PUSH_FOUL_WINDOW = 90;        // 1.5 seconds
+
+// Per-pair push counters (6 pairs for 4 players: 0-1, 0-2, 0-3, 1-2, 1-3, 2-3)
+var _push_counts[6];
+var _push_timers[6];
+var _push_foul_team = -1;         // team that committed most recent foul (-1 = none)
+var _push_init_done = 0;
+
+fn push_init() {
+    if (_push_init_done == 1) { return; }
+    var i = 0;
+    while (i < 6) {
+        store64(&_push_counts + i * 8, 0);
+        store64(&_push_timers + i * 8, 0);
+        i = i + 1;
+    }
+    _push_foul_team = -1;
+    _push_init_done = 1;
+}
+
+fn push_pair_index(i, j) {
+    // Map player pair (i,j) to index 0-5
+    // 0-1=0, 0-2=1, 0-3=2, 1-2=3, 1-3=4, 2-3=5
+    if (i > j) { var tmp = i; i = j; j = tmp; }
+    if (i == 0) { return j - 1; }
+    if (i == 1) { return j + 1; }
+    return 5;   // i=2, j=3
+}
+
+fn push_record(pi, pj, pusher_team) {
+    push_init();
+    var idx = push_pair_index(pi, pj);
+    var count = load64(&_push_counts + idx * 8);
+    var timer = load64(&_push_timers + idx * 8);
+
+    if (timer == 0) {
+        // Start new window
+        store64(&_push_counts + idx * 8, 1);
+        store64(&_push_timers + idx * 8, PUSH_FOUL_WINDOW);
+        return 0;
+    }
+
+    count = count + 1;
+    store64(&_push_counts + idx * 8, count);
+
+    if (count >= PUSH_FOUL_THRESHOLD) {
+        // FOUL!
+        store64(&_push_counts + idx * 8, 0);
+        store64(&_push_timers + idx * 8, 0);
+        _push_foul_team = pusher_team;
+        return 1;
+    }
+    return 0;
+}
+
+fn push_tick_timers() {
+    push_init();
+    var i = 0;
+    while (i < 6) {
+        var timer = load64(&_push_timers + i * 8);
+        if (timer > 0) {
+            timer = timer - 1;
+            store64(&_push_timers + i * 8, timer);
+            if (timer == 0) {
+                store64(&_push_counts + i * 8, 0);
+            }
+        }
+        i = i + 1;
+    }
+}
+
+fn push_get_foul_team() {
+    var t = _push_foul_team;
+    _push_foul_team = -1;
+    return t;
+}
+
 // --- Player-Player collision ---
 
 fn collision_player_player(p1, p2) {
@@ -487,6 +568,93 @@ fn collision_check_intercept(ball, players, player_count, passing_team) {
     return 0;
 }
 
+// --- Rebound contest ---
+// When ball is bouncing near the rim, nearby players contest for it.
+// Winner determined by Rebounding stat + random factor.
+// Returns: player pointer who wins the rebound (or 0 if no contest)
+
+var REBOUND_CONTEST_RADIUS = 524288;   // 8.0 — contest zone around rim
+var REBOUND_BALL_Z_MAX = 393216;       // 6.0 — ball must be below this to contest
+var _rebound_rng = 33333;
+
+fn rebound_rng() {
+    _rebound_rng = _rebound_rng * 6364136223846793005 + 1442695040888963407;
+    var r = (_rebound_rng >> 33) & 2147483647;
+    if (r < 0) { r = 0 - r; }
+    return r;
+}
+
+fn rebound_rng_range(max) {
+    if (max <= 0) { return 0; }
+    var r = rebound_rng();
+    return r - (r / max) * max;
+}
+
+fn collision_check_rebound(ball, players, player_count) {
+    var bp: *i64 = ball;
+    var ball_state = *(bp + 6);
+
+    // Only contest rebounds for loose balls near floor
+    if (ball_state != BALL_FLIGHT) {
+        if (ball_state != BALL_BOUNCE) { return 0; }
+    }
+
+    // Ball must be low enough to grab
+    if (*(bp + 2) > REBOUND_BALL_Z_MAX) { return 0; }
+
+    var bx = *bp;
+    var by = *(bp + 1);
+
+    // Ball must be near a rim (rebound zone)
+    var near_rim = 0;
+    var d2_left = dist_sq(bx, by, RIM_LEFT_X, RIM_Y);
+    var d2_right = dist_sq(bx, by, RIM_RIGHT_X, RIM_Y);
+    var reb_r2 = radius_sq(REBOUND_CONTEST_RADIUS);
+
+    if (d2_left <= reb_r2) { near_rim = 1; }
+    if (d2_right <= reb_r2) { near_rim = 1; }
+    if (near_rim == 0) { return 0; }
+
+    // Find all players near the ball and pick a winner
+    var best_player = 0;
+    var best_score = 0;
+
+    var i = 0;
+    while (i < player_count) {
+        var p = load64(players + i * 8);
+        var pp: *i64 = p;
+
+        // Skip players already holding a ball or in committed states
+        if (*(pp + 9) == 1) { i = i + 1; return 0; }   // someone already has it
+        if (player_is_committed(*(pp + 4)) == 1) {
+            if (*(pp + 6) > 0) { i = i + 1; return 0; }
+        }
+
+        var d2 = dist_sq(*pp, *(pp + 1), bx, by);
+        var pickup_r2 = radius_sq(REBOUND_CONTEST_RADIUS);
+
+        if (d2 <= pickup_r2) {
+            // Contest score: Rebounding stat * 10 + random 0-50
+            var reb_stat = *(pp + 25);     // stat_rebound
+            var score = reb_stat * 10 + rebound_rng_range(50);
+
+            if (score > best_score) {
+                best_score = score;
+                best_player = p;
+            }
+        }
+        i = i + 1;
+    }
+
+    if (best_player != 0) {
+        // Winner gets the ball and enters REBOUND state
+        ball_give_to(ball, best_player);
+        player_try_transition(best_player, PS_REBOUND);
+    }
+
+    return best_player;
+}
+
 // --- Run all collision checks for a frame ---
 
 fn collision_update(ball, players, player_count) {
@@ -502,14 +670,50 @@ fn collision_update(ball, players, player_count) {
         i = i + 1;
     }
 
-    // Player vs player (all pairs)
+    // Player vs player (all pairs) with push foul tracking
+    push_tick_timers();
     i = 0;
     while (i < player_count - 1) {
         var j = i + 1;
         while (j < player_count) {
             var pa = load64(players + i * 8);
             var pb = load64(players + j * 8);
-            collision_player_player(pa, pb);
+
+            var ap: *i64 = pa;
+            var bp: *i64 = pb;
+            var ax = *ap;
+            var ay = *(ap + 1);
+            var bx = *bp;
+            var by = *(bp + 1);
+
+            var d2 = dist_sq(ax, ay, bx, by);
+            var r2 = radius_sq(PLAYER_COLLISION_RADIUS * 2);
+
+            if (d2 <= r2) {
+                collision_player_player(pa, pb);
+
+                // Track push for foul detection (only cross-team)
+                if (*(ap + 7) != *(bp + 7)) {
+                    // The "pusher" is the one moving toward the other
+                    var pusher_team = *(ap + 7);
+                    var avx = *(ap + 2);
+                    var avy = *(ap + 3);
+                    var bvx = *(bp + 2);
+                    var bvy = *(bp + 3);
+
+                    // Who has more momentum toward the other?
+                    var a_toward = 0;
+                    var b_toward = 0;
+                    if (ax < bx) { if (avx > 0) { a_toward = avx; } }
+                    if (ax > bx) { if (avx < 0) { a_toward = 0 - avx; } }
+                    if (bx < ax) { if (bvx > 0) { b_toward = bvx; } }
+                    if (bx > ax) { if (bvx < 0) { b_toward = 0 - bvx; } }
+
+                    if (b_toward > a_toward) { pusher_team = *(bp + 7); }
+
+                    push_record(i, j, pusher_team);
+                }
+            }
             j = j + 1;
         }
         i = i + 1;

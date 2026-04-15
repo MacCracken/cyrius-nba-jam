@@ -1,6 +1,6 @@
 # cyrius-nba-jam Development Roadmap
 
-> **Status**: v0.5.0 implemented | **Last Updated**: 2026-04-15
+> **Status**: v0.6.0 implemented | **Last Updated**: 2026-04-15
 
 ---
 
@@ -99,14 +99,17 @@ Close the gaps in the gameplay loop. Fire, game flow, and the state machine alre
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | Inbound after scoring — reset ball to scoring team's baseline, give to player | Not started | Currently ball goes DEAD with no recovery |
-| 2 | Rebounding — PS_REBOUND state, Rebounding stat contest, jump timing near rim | Not started | PS_REBOUND enum exists but unused |
-| 3 | Clutch stat activation — boost stats in final 30 seconds of quarter | Not started | Stat defined in types.cyr but never checked |
-| 4 | Pushing fouls — excessive contact triggers foul, free inbound | Not started | Player-player collision exists but no foul detection |
-| 5 | Auto-switch on turnover — human player auto-switches to nearest teammate with ball | Not started | Currently must manually press C |
-| 6 | Dead ball recovery — handle BALL_DEAD state, inbound timer, possession reset | Not started | |
+| 1 | Inbound after scoring — reset ball to baseline, give to player | Done | STATE_INBOUND with 90-frame (1.5s) pause. Ball reset to receiving team baseline. Shot clock reset on resume |
+| 2 | Rebounding — PS_REBOUND state, Rebounding stat contest | Done | collision_check_rebound: players within 8.0 of rim contest. Score = stat*10 + random(50). Winner gets ball + 20f committed state |
+| 3 | Clutch stat activation — boost stats in final 30 seconds | Done | Shooting, Stealing, Blocking, Speed boosted by Clutch/2 (capped at 10). Applied once per quarter |
+| 4 | Pushing fouls — excessive contact triggers foul | Done | Per-pair push counter, 4 pushes in 90f window = foul. STATE_FOUL (2s). Momentum-based pusher detection |
+| 5 | Auto-switch on turnover — auto-switch to nearest teammate | Done | Possession change detection in main loop. Switches human to nearest teammate on their team relative to ball |
+| 6 | Dead ball recovery — handle BALL_DEAD state | Done | BALL_DEAD detected in game_update_playing, triggers game_start_inbound. No more stuck dead balls |
 
-**Exit criteria**: Uninterrupted game from tip-off to final buzzer. No dead states. All 9 stats actively affect gameplay.
+**Lines**: 5109 source + 1362 test = 6471 total across 14 modules.
+**Tests**: 97 assertions (21 new: inbound, rebound, clutch, fouls, auto-switch, PS_REBOUND).
+
+**Exit criteria**: Uninterrupted game from tip-off to final buzzer. No dead states. All 9 stats actively affect gameplay. ✓
 
 ## v0.7.0 — Menus, Roster, and Audio
 
