@@ -61,17 +61,21 @@ The ball is the game.
 
 ## v0.4.0 — Dunks
 
-The spectacle.
+The spectacle. BOOMSHAKALAKA!
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | dunk.cyr — dunk detection (proximity + angle + Dunking stat) | Not started | |
-| 2 | Dunk animation sequences — committed (can't cancel) | Not started | From DUNK.ASM reference |
-| 3 | Special dunks — flip, spin, tomahawk | Not started | Triggered by turbo + angle |
-| 4 | Alley-oop — teammate position + timing window | Not started | |
-| 5 | Goal tending detection | Not started | |
+| 1 | dunk.cyr — dunk detection + auto-shoot-or-dunk | Done | 351 lines. Proximity + Dunking stat >= 3, auto-detect near rim |
+| 2 | 6 dunk types with selection logic | Done | Standard, Reverse, Tomahawk, Spin, Double Pump, Alley-Oop. Selected by approach angle, distance, turbo, stat |
+| 3 | Dunk trajectory — parabolic leap to rim | Done | 45-frame committed animation. Interpolate position start→rim, parabolic height arc. Ball follows, slams at frame 30 |
+| 4 | Alley-oop — teammate lob + receiver near rim | Done | Auto-detect: ball in flight + high + receiver near rim + ball near receiver. Catches and immediate dunk |
+| 5 | Goal tending detection | Done | Ball descending near rim = goal tending on block. Auto-scores 2 points |
+| 6 | Per-player DunkState management | Done | Tracks type, positions, frame counter, scored flag. Cleaned up on completion |
 
-**Exit criteria**: Players can dunk, with multiple animation types and alley-oops.
+**Lines**: 3906 source + 845 test = 4751 total across 13 modules.
+**Tests**: 58 assertions (11 new: dunk range/stat/type, goal tending, alley-oop).
+
+**Exit criteria**: Players can dunk, with multiple animation types and alley-oops. ✓
 
 ## v0.5.0 — Drone AI
 

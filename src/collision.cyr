@@ -418,6 +418,40 @@ fn collision_try_block(blocker, shooter, ball) {
     return 0;
 }
 
+// --- Goal tending detection ---
+// If ball is descending toward rim and a defender interferes,
+// that's goal tending — automatic score.
+// Returns: 0 = not goal tending, 2 or 3 = automatic points
+
+fn is_goal_tending(ball) {
+    var bp: *i64 = ball;
+
+    // Ball must be in flight
+    if (*(bp + 6) != BALL_FLIGHT) { return 0; }
+
+    // Ball must be descending (vz < 0)
+    if (*(bp + 5) >= 0) { return 0; }
+
+    // Ball must be near rim height or above
+    var bz = *(bp + 2);
+    if (bz < SCORE_Z_MIN) { return 0; }
+
+    // Ball must be near a rim
+    var bx = *bp;
+    var by = *(bp + 1);
+
+    var gt_radius = 393216;    // 6.0 — goal tending zone
+    var r2 = radius_sq(gt_radius);
+
+    var d2_left = dist_sq(bx, by, RIM_LEFT_X, RIM_Y);
+    if (d2_left <= r2) { return 2; }
+
+    var d2_right = dist_sq(bx, by, RIM_RIGHT_X, RIM_Y);
+    if (d2_right <= r2) { return 2; }
+
+    return 0;
+}
+
 // --- Pass interception ---
 // Check if an opposing player can intercept a ball in flight.
 

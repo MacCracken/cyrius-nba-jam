@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-04-14
+
+### Added
+- **dunk.cyr** — 351 lines. 6 dunk types with stat/turbo/approach-based selection: Standard, Reverse (approaching from behind), Tomahawk (turbo + far + stat >= 8), Spin (lateral approach + turbo), Double Pump (close + turbo), Alley-Oop (teammate lob). Parabolic leap trajectory interpolating from start position to rim over 45 frames. Ball follows player during ascent, slams through rim at frame 30. Turbo drain on dunk (5 per dunk, fire = free).
+- **Alley-oop system** — Automatic detection: ball in flight above hold height + receiver near rim + ball near receiver + receiver has Dunking stat >= 3. Triggers catch-and-dunk with ALLEY_OOP type override.
+- **Goal tending** — Ball descending (vz < 0) near rim height in scoring zone = goal tending on block attempt. Automatic 2 points awarded to shooter's team. Checked before block attempt resolves.
+- **Dunk-or-shoot auto-detect** — Shoot button near rim with sufficient Dunking stat auto-triggers dunk instead of jump shot. No separate dunk button needed.
+- **Dunk state management** — Per-player DunkState struct tracks type, start/target positions, frame counter, scored flag. Cleaned up when dunk animation completes.
+- 11 new test assertions (58 total): dunk range/stat/type selection, dunk type names, goal tending (descending/ascending/far), alley-oop conditions
+
+### Project stats
+- 13 source modules, 1 test file
+- 3906 lines of Cyrius source + 845 lines of tests = 4751 total
+
 ## [0.3.0] — 2026-04-14
 
 ### Added

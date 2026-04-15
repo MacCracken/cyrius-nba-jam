@@ -4,7 +4,7 @@
 // Reference: historicalsource/nba-jam (TMS34010 assembly)
 // All code is new Cyrius — the original is design reference only.
 //
-// v0.3.0: Ball physics, shooting, collision, HUD, game state.
+// v0.4.0: Ball physics, shooting, collision, HUD, game state.
 // A player can shoot the ball, it arcs, hits/misses the rim, score updates.
 
 include "lib/string.cyr"
@@ -21,6 +21,7 @@ include "src/player.cyr"
 include "src/ball.cyr"
 include "src/collision.cyr"
 include "src/shoot.cyr"
+include "src/dunk.cyr"
 include "src/game.cyr"
 include "src/hud.cyr"
 include "src/input.cyr"
@@ -148,15 +149,25 @@ fn game_update_all() {
         }
     }
 
-    // --- Shoot action ---
+    // --- Shoot / Dunk action ---
     if (input_shoot() == 1) {
         if (*(ap + 9) == 1) {   // has_ball
             var state = *(ap + 4);
             if (state != PS_SHOOT) {
-                player_try_transition(active, PS_SHOOT);
-                var rim_x = get_target_rim_x(_game);
-                var rim_y = get_target_rim_y();
-                shoot_ball(active, _ball, rim_x, rim_y);
+                if (state != PS_DUNK) {
+                    var rim_x = get_target_rim_x(_game);
+                    var rim_y = get_target_rim_y();
+
+                    // Auto-detect dunk vs shot based on proximity
+                    if (can_dunk(active, rim_x, rim_y) == 1) {
+                        // DUNK!
+                        dunk_start(active, _active_player, _ball, rim_x, rim_y);
+                    } else {
+                        // Regular shot
+                        player_try_transition(active, PS_SHOOT);
+                        shoot_ball(active, _ball, rim_x, rim_y);
+                    }
+                }
             }
         }
     }
@@ -212,7 +223,20 @@ fn game_update_all() {
                 // Also try block if opponent is shooting
                 if (*(tp + 4) == PS_SHOOT) {
                     if (*(tp + 7) != active_team) {
-                        collision_try_block(active, target, _ball);
+                        // Check goal tending first
+                        var gt = is_goal_tending(_ball);
+                        if (gt > 0) {
+                            // Goal tending: automatic score for the shooter
+                            var gp: *i64 = _game;
+                            if (*(tp + 7) == TEAM_HOME) {
+                                *(gp + 4) = *(gp + 4) + gt;
+                            } else {
+                                *(gp + 5) = *(gp + 5) + gt;
+                            }
+                            ball_mark_scored(_ball);
+                        } else {
+                            collision_try_block(active, target, _ball);
+                        }
                     }
                 }
                 i = i + 1;
@@ -225,6 +249,24 @@ fn game_update_all() {
     while (i < _player_count) {
         var p = load64(&_players + i * 8);
         player_update(p);
+
+        // Update active dunks
+        if (is_dunking(i) == 1) {
+            dunk_update(p, i, _ball);
+        }
+        i = i + 1;
+    }
+
+    // Check alley-oop opportunities
+    var rim_x = get_target_rim_x(_game);
+    var rim_y = get_target_rim_y();
+    i = 0;
+    while (i < _player_count) {
+        var p = load64(&_players + i * 8);
+        if (can_alley_oop(p, _ball, rim_x, rim_y) == 1) {
+            alley_oop_start(p, i, _ball, rim_x, rim_y);
+            i = _player_count;   // break — only one alley-oop per frame
+        }
         i = i + 1;
     }
 
@@ -371,7 +413,7 @@ fn main() {
 
     game_init_all();
 
-    println("cyrius-nba-jam v0.3.0");
+    println("cyrius-nba-jam v0.4.0");
 
     if (_ppm_mode == 1) {
         game_render_all();

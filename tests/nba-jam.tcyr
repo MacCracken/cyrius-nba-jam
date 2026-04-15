@@ -1,6 +1,6 @@
 // cyrius-nba-jam — test suite
-// v0.2.0: Tests for physics, fire, stats, render, sprite, court,
-// player, ball, collision, shooting, game state, HUD.
+// v0.4.0: Tests for physics, fire, stats, render, sprite, court,
+// player, ball, collision, shooting, dunks, game state, HUD.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -15,6 +15,7 @@ include "src/player.cyr"
 include "src/ball.cyr"
 include "src/collision.cyr"
 include "src/shoot.cyr"
+include "src/dunk.cyr"
 include "src/game.cyr"
 include "src/hud.cyr"
 
@@ -537,6 +538,138 @@ fn test_intercept_same_team_ignored() {
     return 0;
 }
 
+// ========= Dunk =========
+
+fn test_can_dunk_in_range() {
+    // Player near right rim with decent dunking stat
+    var p = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 327680, RIM_Y);  // 5.0 from rim
+    player_set_stats(p, 5, 5, 5, 8, 5, 5, 5, 5, 5);    // dunking = 8
+    var pp: *i64 = p;
+    *(pp + 9) = 1;     // has_ball
+
+    assert_eq(can_dunk(p, RIM_RIGHT_X, RIM_Y), 1, "can dunk near rim with stat 8");
+    return 0;
+}
+
+fn test_cant_dunk_too_far() {
+    // Player far from rim
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);   // (100, 130) — far
+    player_set_stats(p, 5, 5, 5, 10, 5, 5, 5, 5, 5);
+    var pp: *i64 = p;
+    *(pp + 9) = 1;
+
+    assert_eq(can_dunk(p, RIM_RIGHT_X, RIM_Y), 0, "can't dunk from far away");
+    return 0;
+}
+
+fn test_cant_dunk_low_stat() {
+    // Player near rim but low dunking stat
+    var p = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 196608, RIM_Y);
+    player_set_stats(p, 5, 5, 5, 2, 5, 5, 5, 5, 5);    // dunking = 2 (below min)
+    var pp: *i64 = p;
+    *(pp + 9) = 1;
+
+    assert_eq(can_dunk(p, RIM_RIGHT_X, RIM_Y), 0, "can't dunk with stat 2");
+    return 0;
+}
+
+fn test_dunk_type_standard() {
+    var p = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 327680, RIM_Y);
+    player_set_stats(p, 5, 5, 5, 4, 5, 5, 5, 5, 5);    // dunking = 4 (below special threshold)
+    var pp: *i64 = p;
+    *(pp + 11) = 50;   // some turbo
+
+    var dtype = select_dunk_type(p, RIM_RIGHT_X, RIM_Y);
+    assert_eq(dtype, DUNK_STANDARD, "low stat = standard dunk");
+    return 0;
+}
+
+fn test_dunk_type_tomahawk() {
+    var p = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 524288, RIM_Y);   // 8.0 from rim
+    player_set_stats(p, 5, 5, 5, 9, 5, 5, 5, 5, 5);    // dunking = 9
+    var pp: *i64 = p;
+    *(pp + 11) = 50;   // has turbo
+    *(pp + 2) = 65536;  // moving right toward rim (vx > 0)
+
+    var dtype = select_dunk_type(p, RIM_RIGHT_X, RIM_Y);
+    assert_eq(dtype, DUNK_TOMAHAWK, "high stat + turbo + far = tomahawk");
+    return 0;
+}
+
+fn test_dunk_type_name() {
+    var name = dunk_type_name(DUNK_ALLEY_OOP);
+    assert_eq(streq(name, "ALLEY-OOP!"), 1, "alley-oop name");
+    return 0;
+}
+
+// ========= Goal tending =========
+
+fn test_goal_tending_descending_near_rim() {
+    var b = ball_new(RIM_RIGHT_X, RIM_Y);
+    var bp: *i64 = b;
+    *(bp + 2) = 655360;         // z = 10.0 (rim height)
+    *(bp + 5) = 0 - 32768;     // vz = -0.5 (descending)
+    *(bp + 6) = BALL_FLIGHT;
+
+    var gt = is_goal_tending(b);
+    assert_eq(gt, 2, "goal tending: descending ball near rim");
+    return 0;
+}
+
+fn test_no_goal_tending_ascending() {
+    var b = ball_new(RIM_RIGHT_X, RIM_Y);
+    var bp: *i64 = b;
+    *(bp + 2) = 655360;
+    *(bp + 5) = 32768;         // vz = +0.5 (ascending)
+    *(bp + 6) = BALL_FLIGHT;
+
+    var gt = is_goal_tending(b);
+    assert_eq(gt, 0, "no goal tending on ascending ball");
+    return 0;
+}
+
+fn test_no_goal_tending_far() {
+    var b = ball_new(6553600, 8519680);    // far from rim
+    var bp: *i64 = b;
+    *(bp + 2) = 655360;
+    *(bp + 5) = 0 - 32768;
+    *(bp + 6) = BALL_FLIGHT;
+
+    var gt = is_goal_tending(b);
+    assert_eq(gt, 0, "no goal tending far from rim");
+    return 0;
+}
+
+// ========= Alley-oop =========
+
+fn test_alley_oop_conditions() {
+    // Receiver near rim, ball in flight above hold height, ball near receiver
+    var receiver = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 196608, RIM_Y);
+    player_set_stats(receiver, 5, 5, 5, 7, 5, 5, 5, 5, 5);
+
+    var b = ball_new(RIM_RIGHT_X - 262144, RIM_Y);
+    var bp: *i64 = b;
+    *(bp + 6) = BALL_FLIGHT;
+    *(bp + 2) = 524288;     // z = 8.0 (above hold height of 5.0)
+
+    assert_eq(can_alley_oop(receiver, b, RIM_RIGHT_X, RIM_Y), 1,
+              "alley-oop conditions met");
+    return 0;
+}
+
+fn test_alley_oop_no_ball_flight() {
+    var receiver = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 196608, RIM_Y);
+    player_set_stats(receiver, 5, 5, 5, 7, 5, 5, 5, 5, 5);
+
+    var b = ball_new(RIM_RIGHT_X - 262144, RIM_Y);
+    var bp: *i64 = b;
+    *(bp + 6) = BALL_HELD;    // not in flight
+
+    assert_eq(can_alley_oop(receiver, b, RIM_RIGHT_X, RIM_Y), 0,
+              "no alley-oop without flight ball");
+    return 0;
+}
+
 // ========= Turbo =========
 
 fn test_turbo_drain() {
@@ -668,6 +801,23 @@ fn main() {
     // HUD
     test_hud_digit();
     test_hud_renders();
+
+    // Dunk
+    test_can_dunk_in_range();
+    test_cant_dunk_too_far();
+    test_cant_dunk_low_stat();
+    test_dunk_type_standard();
+    test_dunk_type_tomahawk();
+    test_dunk_type_name();
+
+    // Goal tending
+    test_goal_tending_descending_near_rim();
+    test_no_goal_tending_ascending();
+    test_no_goal_tending_far();
+
+    // Alley-oop
+    test_alley_oop_conditions();
+    test_alley_oop_no_ball_flight();
 
     // Steal
     test_steal_close();
