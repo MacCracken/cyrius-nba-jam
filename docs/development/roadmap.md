@@ -1,6 +1,6 @@
 # cyrius-nba-jam Development Roadmap
 
-> **Status**: v0.6.0 implemented | **Last Updated**: 2026-04-15
+> **Status**: v0.7.0 implemented | **Last Updated**: 2026-04-15
 
 ---
 
@@ -117,14 +117,17 @@ Team select, attract mode, announcer.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | roster.cyr — team/player database with stats from HEY.DOC | Not started | Stat tables for all teams |
-| 2 | menu.cyr — team select screen with cursor navigation | Not started | |
-| 3 | Attract mode — AI vs AI demo gameplay on title screen | Not started | AI system (v0.5.0) enables this |
-| 4 | audio.cyr — sound effects, announcer text calls (BOOMSHAKALAKA) | Not started | Text-based first, PCM later |
-| 5 | Visual fire effects — sprite palette flash, ball trail during fire mode | Not started | Currently only jersey color swap |
-| 6 | Animation polish — smooth sprite transitions between states | Not started | |
+| 1 | roster.cyr — team/player database with stats from HEY.DOC | Done | 337 lines. 8 teams, 16 players, full 9-stat profiles. Team names, jersey colors, stat totals |
+| 2 | menu.cyr — team select screen with cursor navigation | Done | 337 lines. Title screen, team select with stat panels, two-phase selection, back button |
+| 3 | Attract mode — AI vs AI demo gameplay on title screen | Done | All 4 players AI, 10s idle trigger, any key returns to menu |
+| 4 | audio.cyr — sound effects, announcer text calls (BOOMSHAKALAKA) | Done | 229 lines. Priority-based text announcer. Score/dunk/steal/block/foul/fire calls. Flash effects |
+| 5 | Visual fire effects — sprite palette flash, ball trail during fire mode | Done | 12-frame jersey color cycle, 3-segment ball trail (yellow→orange→red) |
+| 6 | Animation polish — state-based sprite color feedback | Done | SHOOT=white, BLOCK=red, STEAL=yellow flash |
 
-**Exit criteria**: Player can select a team, play a full game with announcer calls, and return to menu.
+**Lines**: 6183 source + 1536 test = 7719 total across 17 modules.
+**Tests**: 121 assertions (24 new: roster, menu, announcer, visual effects).
+
+**Exit criteria**: Player can select a team, play a full game with announcer calls, and return to menu. ✓
 
 ## v1.0.0 — Complete Game
 

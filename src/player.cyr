@@ -364,10 +364,29 @@ fn player_draw(p) {
         if (team == TEAM_AWAY) {
             jersey_color = 24;   // away red
         }
-        // Fire effect: alternate jersey color
+        // Fire effect: flash between colors
         var on_fire = *(ptr + 10);
         if (on_fire == 1) {
-            jersey_color = 48;   // fire yellow
+            // Flash: cycle through fire colors every 4 frames
+            var fire_phase = *(ptr + 6);   // use state_timer as phase
+            if (fire_phase < 0) { fire_phase = 0 - fire_phase; }
+            var fire_mod = fire_phase - (fire_phase / 12) * 12;
+            if (fire_mod < 4) { jersey_color = 48; }        // yellow
+            elif (fire_mod < 8) { jersey_color = 25; }      // orange
+            else { jersey_color = 24; }                       // red
+        }
+
+        // State-based visual feedback
+        var state = *(ptr + 4);
+        if (state == PS_SHOOT) {
+            // Slight white flash during shot
+            jersey_color = 63;
+        } elif (state == PS_BLOCK) {
+            // Red flash during block
+            if (on_fire != 1) { jersey_color = 24; }
+        } elif (state == PS_STEAL) {
+            // Quick flash
+            if (on_fire != 1) { jersey_color = 48; }
         }
 
         // Head

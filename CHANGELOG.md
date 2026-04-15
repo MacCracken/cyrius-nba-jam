@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-04-15
+
+### Added
+- **roster.cyr** — 337 lines. 8 teams with 2 players each (16 total). Full 9-stat profiles per player inspired by original HEY.DOC archetypes. Team names, player names, jersey color pairs. Stat lookup by slot, roster_apply_stats to load stats onto Player struct, team stat totals for display. Teams: Chicago, New York, Detroit, Phoenix, Orlando, Seattle, Houston, San Antonio.
+- **menu.cyr** — 337 lines. Title screen with block-letter "NBA JAM" rendering (draw_rect composition). Team select screen with cursor navigation, team list with jersey color swatches, stat bar display panel showing Speed/Power/Shooting/Dunking/Stealing/Blocking for both players. Two-phase selection (home then away), back button support, idle timer for attract mode trigger.
+- **audio.cyr** — 229 lines. Text-based announcer call system with priority levels (Low/Medium/High/Fire). Score calls: "BOOMSHAKALAKA!", "FROM DOWNTOWN!", "NOTHING BUT NET!", "HE'S HEATING UP!", "HE'S ON FIRE!" with consecutive basket tracking. Dunk calls: "MONSTER JAM!", "IS IT THE SHOES?!". Defense calls: "REJECTED!", "STOLEN!". Game calls: "OVERTIME!", "AT THE BUZZER!", "PUSHING FOUL!". Announcer text rendered as centered bar with flash effect for high-priority calls.
+- **Attract mode** — All 4 players AI-controlled with random teams. Triggered after 10 seconds idle on title screen. "PRESS START" overlay flashes. Any key returns to menu. Game over returns to menu.
+- **Visual fire effects** — On-fire player jersey flashes through yellow/orange/red on 12-frame cycle. Ball trail effect: 3 trailing segments (yellow→orange→red) drawn behind ball in flight when last shooter is on fire. State-based player color: white flash during SHOOT, red flash during BLOCK, yellow flash during STEAL.
+- **Game flow restructure** — main.cyr refactored to mode-based dispatch: menu (0), team select (1), playing (2), attract (3). game_start_match creates players from roster with team-colored sprites. Score change detection triggers announcer calls. Foul state triggers announcer. Game over returns to menu.
+- 24 new test assertions (121 total): roster team count/stat range/apply/name/total, menu init/select-home/select-both, announcer trigger/priority/expiry/fire-call, fire visual effect
+
+### Project stats
+- 17 source modules, 1 test file
+- 6183 lines of Cyrius source + 1536 lines of tests = 7719 total
+
 ## [0.6.0] — 2026-04-15
 
 ### Added

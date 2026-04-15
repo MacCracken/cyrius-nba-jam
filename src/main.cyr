@@ -4,8 +4,8 @@
 // Reference: historicalsource/nba-jam (TMS34010 assembly)
 // All code is new Cyrius — the original is design reference only.
 //
-// v0.6.0: Game flow polish — inbound, rebound, clutch, fouls, auto-switch.
-// Full 2-on-2 with AI opponents, uninterrupted game loop.
+// v0.7.0: Menus, roster, announcer, attract mode, visual effects.
+// Complete game flow from title screen through gameplay to game over.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -26,6 +26,9 @@ include "src/game.cyr"
 include "src/hud.cyr"
 include "src/input.cyr"
 include "src/ai.cyr"
+include "src/roster.cyr"
+include "src/menu.cyr"
+include "src/audio.cyr"
 
 // --- Game state ---
 
@@ -39,6 +42,9 @@ var _ppm_mode = 0;
 var _ball = 0;
 var _game = 0;
 var _last_possession = 0;        // track possession changes for auto-switch
+var _game_mode = 0;              // 0=menu, 1=select, 2=playing, 3=attract
+var _last_home_score = 0;        // track score changes for announcer
+var _last_away_score = 0;
 
 // Sprite buffers
 var _sprite_buf_home1 = 0;
@@ -52,6 +58,8 @@ var _sprite_buf_ball = 0;
 fn game_init_all() {
     alloc_init();
     render_init();
+    menu_init();
+    announce_init();
 
     // Allocate sprites
     var ps = PLAYER_SPRITE_W * PLAYER_SPRITE_H;
@@ -61,32 +69,49 @@ fn game_init_all() {
     _sprite_buf_away2 = alloc(ps);
     _sprite_buf_ball = alloc(BALL_SPRITE_W * BALL_SPRITE_H);
 
-    sprite_make_player(_sprite_buf_home1, PLAYER_SPRITE_W, PLAYER_SPRITE_H, 16, 20);
-    sprite_make_player(_sprite_buf_home2, PLAYER_SPRITE_W, PLAYER_SPRITE_H, 17, 21);
-    sprite_make_player(_sprite_buf_away1, PLAYER_SPRITE_W, PLAYER_SPRITE_H, 24, 20);
-    sprite_make_player(_sprite_buf_away2, PLAYER_SPRITE_W, PLAYER_SPRITE_H, 25, 21);
     sprite_make_ball(_sprite_buf_ball, BALL_SPRITE_W, BALL_SPRITE_H);
 
-    // Create players
-    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);    // (100, 130)
+    _active_player = 0;
+    _frame_count = 0;
+    _running = 1;
+    _game_mode = 0;   // start at menu
+
+    // Seed shoot RNG
+    shoot_rng_seed(98765);
+}
+
+fn game_start_match(home_team_id, away_team_id) {
+    // Generate sprites with team colors
+    var hc1 = roster_jersey_primary(home_team_id);
+    var hc2 = roster_jersey_secondary(home_team_id);
+    var ac1 = roster_jersey_primary(away_team_id);
+    var ac2 = roster_jersey_secondary(away_team_id);
+
+    sprite_make_player(_sprite_buf_home1, PLAYER_SPRITE_W, PLAYER_SPRITE_H, hc1, hc2);
+    sprite_make_player(_sprite_buf_home2, PLAYER_SPRITE_W, PLAYER_SPRITE_H, hc1, hc2);
+    sprite_make_player(_sprite_buf_away1, PLAYER_SPRITE_W, PLAYER_SPRITE_H, ac1, ac2);
+    sprite_make_player(_sprite_buf_away2, PLAYER_SPRITE_W, PLAYER_SPRITE_H, ac1, ac2);
+
+    // Create players with roster stats
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
     var p1p: *i64 = p1;
     *(p1p + 14) = _sprite_buf_home1;
-    player_set_stats(p1, 7, 5, 8, 6, 4, 5, 6, 7, 5);
+    roster_apply_stats(p1, home_team_id, 0);
 
-    var p2 = player_new(TEAM_HOME, 1, 6553600, 11141120);   // (100, 170)
+    var p2 = player_new(TEAM_HOME, 1, 6553600, 11141120);
     var p2p: *i64 = p2;
     *(p2p + 14) = _sprite_buf_home2;
-    player_set_stats(p2, 5, 7, 5, 8, 3, 7, 5, 6, 7);
+    roster_apply_stats(p2, home_team_id, 1);
 
-    var p3 = player_new(TEAM_AWAY, 0, 14417920, 8519680);   // (220, 130)
+    var p3 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
     var p3p: *i64 = p3;
     *(p3p + 14) = _sprite_buf_away1;
-    player_set_stats(p3, 8, 4, 7, 7, 6, 4, 7, 5, 4);
+    roster_apply_stats(p3, away_team_id, 0);
 
-    var p4 = player_new(TEAM_AWAY, 1, 14417920, 11141120);  // (220, 170)
+    var p4 = player_new(TEAM_AWAY, 1, 14417920, 11141120);
     var p4p: *i64 = p4;
     *(p4p + 14) = _sprite_buf_away2;
-    player_set_stats(p4, 6, 8, 6, 5, 5, 8, 4, 8, 6);
+    roster_apply_stats(p4, away_team_id, 1);
 
     store64(&_players, p1);
     store64(&_players + 8, p2);
@@ -101,24 +126,19 @@ fn game_init_all() {
 
     // Create game state
     _game = game_new();
-
     _active_player = 0;
-    _frame_count = 0;
-    _running = 1;
     _last_possession = TEAM_HOME;
+    _last_home_score = 0;
+    _last_away_score = 0;
+    _game_mode = 2;   // playing
 
-    // Seed shoot RNG with frame count + arbitrary value
-    shoot_rng_seed(98765);
-
-    // Initialize AI — all players start as AI-controlled
-    // Player 0 (human) gets deactivated, rest are drones
+    // Initialize AI
     ai_init();
     ai_set_active(0, 0);   // human player
     ai_set_active(1, 1);   // AI teammate
     ai_set_active(2, 1);   // AI opponent 1
     ai_set_active(3, 1);   // AI opponent 2
 
-    // Away team is harder
     ai_set_difficulty(1, AI_DIFF_MEDIUM);
     ai_set_difficulty(2, AI_DIFF_MEDIUM);
     ai_set_difficulty(3, AI_DIFF_MEDIUM);
@@ -346,8 +366,6 @@ fn game_update_all() {
             }
         }
     }
-
-    _frame_count = _frame_count + 1;
 }
 
 // --- Render ---
@@ -472,9 +490,11 @@ fn main() {
 
     game_init_all();
 
-    println("cyrius-nba-jam v0.6.0");
+    println("cyrius-nba-jam v0.7.0");
 
     if (_ppm_mode == 1) {
+        // Quick start for screenshot mode
+        game_start_match(0, 5);   // default teams
         game_render_all();
         render_write_ppm("/tmp/nba-jam.ppm");
         var pixels = render_pixel_count();
@@ -488,7 +508,7 @@ fn main() {
 
     input_init();
     println("BOOMSHAKALAKA!");
-    println("WASD=move  SPACE=shoot  Z=pass  X=turbo  C=switch  V=steal/block  P=screenshot  Q=quit");
+    println("WASD=move  SPACE=shoot/select  Z=pass  X=turbo  C=switch  V=steal/block  P=screenshot  Q=quit");
 
     var target_ns = 16666667;
 
@@ -499,17 +519,122 @@ fn main() {
         if (input_quit() == 1) { _running = 0; }
 
         if (input_screenshot() == 1) {
-            game_render_all();
             render_write_ppm("/tmp/nba-jam.ppm");
             println("screenshot: /tmp/nba-jam.ppm");
         }
 
-        if (game_is_over(_game) == 1) {
-            _running = 0;
+        // --- Mode dispatch ---
+        if (_game_mode == 0) {
+            // MENU — title screen
+            menu_draw_title();
+            menu_tick_idle();
+
+            // Any key → team select
+            if (input_shoot() == 1) {
+                menu_reset();
+                _game_mode = 1;
+            } elif (input_dx() != 0) {
+                menu_reset();
+                _game_mode = 1;
+            } elif (input_dy() != 0) {
+                menu_reset();
+                _game_mode = 1;
+            }
+
+            // Idle timeout → attract
+            if (menu_should_attract() == 1) {
+                game_start_match(0, 5);   // default teams
+                // All AI for attract
+                ai_set_active(0, 1);
+                ai_set_active(1, 1);
+                ai_set_active(2, 1);
+                ai_set_active(3, 1);
+                _game_mode = 3;
+            }
+        } elif (_game_mode == 1) {
+            // SELECT — team select screen
+            menu_draw_select();
+
+            var dy = 0;
+            if (input_dy() < 0) { dy = -1; }
+            elif (input_dy() > 0) { dy = 1; }
+
+            var confirm = input_shoot();
+            var back = input_pass();
+
+            var done = menu_update_select(0, dy, confirm, back);
+            if (done == 1) {
+                // Both teams selected — start match
+                var ht = menu_get_home_team();
+                var at = menu_get_away_team();
+                game_start_match(ht, at);
+            }
+        } elif (_game_mode == 2) {
+            // PLAYING — actual game
+            if (game_is_over(_game) == 1) {
+                announce_game_over();
+                _game_mode = 0;   // back to menu
+                menu_reset();
+            } else {
+                game_update_all();
+
+                // Announcer: detect score changes
+                var gpa: *i64 = _game;
+                var hs = *(gpa + 4);
+                var as_ = *(gpa + 5);
+                if (hs != _last_home_score) {
+                    var pts = hs - _last_home_score;
+                    var is_three = 0;
+                    if (pts >= 3) { is_three = 1; }
+                    announce_score(is_three, 0, *(gpa + 9));
+                    _last_home_score = hs;
+                }
+                if (as_ != _last_away_score) {
+                    var pts = as_ - _last_away_score;
+                    var is_three = 0;
+                    if (pts >= 3) { is_three = 1; }
+                    announce_score(is_three, 0, *(gpa + 10));
+                    _last_away_score = as_;
+                }
+
+                // Announcer: detect fouls
+                var game_state = *gpa;
+                if (game_state == STATE_FOUL) {
+                    announce_foul();
+                }
+
+                game_render_all();
+                announce_update();
+                announce_draw();
+            }
+        } elif (_game_mode == 3) {
+            // ATTRACT — AI vs AI demo
+            if (input_shoot() == 1) {
+                _game_mode = 0;   // any key returns to menu
+                menu_reset();
+            } elif (input_dx() != 0) {
+                _game_mode = 0;
+                menu_reset();
+            } else {
+                game_update_all();
+                game_render_all();
+                announce_update();
+
+                // "PRESS START" overlay on attract
+                draw_rect(100, 220, 120, 10, 0);
+                var flash = _frame_count / 30;
+                if (flash - (flash / 2) * 2 == 0) {
+                    draw_rect(110, 222, 100, 6, 63);
+                }
+
+                if (game_is_over(_game) == 1) {
+                    _game_mode = 0;
+                    menu_reset();
+                }
+            }
         }
 
-        game_update_all();
-        game_render_all();
+        _frame_count = _frame_count + 1;
 
         var elapsed = get_time_ns() - t0;
         if (elapsed < target_ns) {
@@ -519,21 +644,23 @@ fn main() {
 
     input_restore();
 
-    // Final score
-    var gp: *i64 = _game;
-    println("");
-    print("FINAL SCORE — HOME: ");
-    fmt_int(*(gp + 4));
-    print("  AWAY: ");
-    fmt_int(*(gp + 5));
-    println("");
+    // Final score (if game was played)
+    if (_game != 0) {
+        var gp: *i64 = _game;
+        println("");
+        print("FINAL SCORE — HOME: ");
+        fmt_int(*(gp + 4));
+        print("  AWAY: ");
+        fmt_int(*(gp + 5));
+        println("");
 
-    if (*(gp + 4) > *(gp + 5)) {
-        println("HOME WINS!");
-    } elif (*(gp + 5) > *(gp + 4)) {
-        println("AWAY WINS!");
-    } else {
-        println("TIE GAME!");
+        if (*(gp + 4) > *(gp + 5)) {
+            println("HOME WINS!");
+        } elif (*(gp + 5) > *(gp + 4)) {
+            println("AWAY WINS!");
+        } else {
+            println("TIE GAME!");
+        }
     }
 
     return 0;

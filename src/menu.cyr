@@ -1,0 +1,337 @@
+// cyrius-nba-jam — menu.cyr
+// Menu system: title screen, team select, attract mode trigger.
+//
+// Reference: SELECT.ASM, MENU.ASM (~13,000 lines TMS34010)
+// Original has elaborate cursor animations, player head sprites.
+// We implement functional team selection with framebuffer rendering.
+//
+// Flow:
+//   STATE_MENU → (any key) → STATE_SELECT → (both teams chosen) → STATE_TIPOFF
+//   STATE_MENU → (idle 10s) → STATE_ATTRACT → (any key) → STATE_MENU
+//   STATE_GAMEOVER → (timer) → STATE_MENU
+
+// --- Menu constants ---
+
+var MENU_TITLE_Y = 40;
+var MENU_PROMPT_Y = 180;
+var SELECT_TEAM_Y = 30;
+var SELECT_LIST_Y = 60;
+var SELECT_LIST_SPACING = 18;
+var SELECT_CURSOR_X = 20;
+var SELECT_STATS_X = 200;
+
+var ATTRACT_IDLE_FRAMES = 600;   // 10 seconds idle → attract mode
+
+// --- Menu state ---
+
+struct MenuState {
+    home_team;           // 0: selected home team id (0 to TEAM_COUNT-1)
+    away_team;           // 1: selected away team id
+    home_confirmed;      // 2: 1 if home team is locked in
+    away_confirmed;      // 3: 1 if away team is locked in
+    cursor;              // 4: current cursor position (team index)
+    selecting_side;      // 5: 0 = home picking, 1 = away picking
+    idle_timer;          // 6: frames since last input
+    flash_timer;         // 7: for blinking effects
+}
+
+var _menu = 0;
+var _menu_init_done = 0;
+
+fn menu_init() {
+    if (_menu_init_done == 1) { return; }
+    var m = MenuState {
+        0,              // home_team
+        1,              // away_team (default different)
+        0,              // home_confirmed
+        0,              // away_confirmed
+        0,              // cursor
+        0,              // selecting_side (home first)
+        0,              // idle_timer
+        0               // flash_timer
+    };
+    _menu = &m;
+    _menu_init_done = 1;
+}
+
+fn menu_reset() {
+    menu_init();
+    var mp: *i64 = _menu;
+    *mp = 0;
+    *(mp + 1) = 1;
+    *(mp + 2) = 0;
+    *(mp + 3) = 0;
+    *(mp + 4) = 0;
+    *(mp + 5) = 0;
+    *(mp + 6) = 0;
+    *(mp + 7) = 0;
+}
+
+// --- Title screen rendering ---
+
+fn menu_draw_title() {
+    fb_clear(0);
+
+    // Title text: "NBA JAM" in large block letters (center screen)
+    // N
+    var tx = 90;
+    var ty = MENU_TITLE_Y;
+    var c = 48;     // bright yellow
+    draw_rect(tx, ty, 4, 20, c);
+    draw_rect(tx + 12, ty, 4, 20, c);
+    draw_rect(tx + 4, ty + 2, 2, 4, c);
+    draw_rect(tx + 6, ty + 6, 2, 4, c);
+    draw_rect(tx + 8, ty + 10, 2, 4, c);
+    draw_rect(tx + 10, ty + 14, 2, 4, c);
+
+    // B
+    tx = 110;
+    draw_rect(tx, ty, 4, 20, c);
+    draw_rect(tx + 4, ty, 8, 3, c);
+    draw_rect(tx + 4, ty + 8, 8, 3, c);
+    draw_rect(tx + 4, ty + 17, 8, 3, c);
+    draw_rect(tx + 10, ty + 3, 3, 5, c);
+    draw_rect(tx + 10, ty + 11, 3, 6, c);
+
+    // A
+    tx = 128;
+    draw_rect(tx + 4, ty, 6, 3, c);
+    draw_rect(tx, ty + 3, 4, 17, c);
+    draw_rect(tx + 10, ty + 3, 4, 17, c);
+    draw_rect(tx + 4, ty + 10, 6, 3, c);
+
+    // Space then J
+    tx = 152;
+    draw_rect(tx + 8, ty, 4, 16, c);
+    draw_rect(tx, ty + 12, 4, 5, c);
+    draw_rect(tx + 4, ty + 17, 4, 3, c);
+
+    // A
+    tx = 168;
+    draw_rect(tx + 4, ty, 6, 3, c);
+    draw_rect(tx, ty + 3, 4, 17, c);
+    draw_rect(tx + 10, ty + 3, 4, 17, c);
+    draw_rect(tx + 4, ty + 10, 6, 3, c);
+
+    // M
+    tx = 186;
+    draw_rect(tx, ty, 4, 20, c);
+    draw_rect(tx + 14, ty, 4, 20, c);
+    draw_rect(tx + 4, ty + 3, 2, 4, c);
+    draw_rect(tx + 6, ty + 5, 2, 4, c);
+    draw_rect(tx + 8, ty + 7, 2, 4, c);
+    draw_rect(tx + 10, ty + 5, 2, 4, c);
+    draw_rect(tx + 12, ty + 3, 2, 4, c);
+
+    // Subtitle
+    var sy = 75;
+    // "TOURNAMENT EDITION" — small text via draw_rect blocks
+    // Simplified: just draw a colored bar as subtitle indicator
+    draw_rect(95, sy, 130, 2, 24);      // red line
+
+    // "INSERT COIN" / "PRESS START" prompt
+    // Flash the prompt
+    menu_init();
+    var mp: *i64 = _menu;
+    var flash = *(mp + 7);
+    if ((flash / 30) - ((flash / 30) / 2) * 2 == 0) {
+        // Draw "PRESS START" as colored blocks (simplified)
+        draw_rect(110, MENU_PROMPT_Y, 100, 10, 63);     // white bar
+        draw_rect(112, MENU_PROMPT_Y + 2, 96, 6, 0);    // inner black
+        draw_rect(116, MENU_PROMPT_Y + 3, 88, 4, 63);   // text placeholder
+    }
+
+    // "CYRIUS-NBA-JAM" at bottom
+    draw_rect(80, 220, 160, 2, 16);     // blue line
+}
+
+// --- Team select rendering ---
+
+fn menu_draw_select() {
+    fb_clear(0);
+    menu_init();
+    var mp: *i64 = _menu;
+    var cursor = *(mp + 4);
+    var side = *(mp + 5);
+    var home_conf = *(mp + 2);
+
+    // Header
+    if (side == 0) {
+        // "SELECT HOME TEAM" header bar
+        draw_rect(0, 0, SCREEN_W, 20, 16);    // blue bar
+        draw_rect(60, 4, 200, 12, 0);          // inner
+        draw_rect(64, 6, 192, 8, 16);          // "SELECT HOME TEAM"
+    } else {
+        draw_rect(0, 0, SCREEN_W, 20, 24);    // red bar
+        draw_rect(60, 4, 200, 12, 0);
+        draw_rect(64, 6, 192, 8, 24);          // "SELECT AWAY TEAM"
+    }
+
+    // Team list
+    var i = 0;
+    while (i < TEAM_COUNT) {
+        var y = SELECT_LIST_Y + i * SELECT_LIST_SPACING;
+        var is_selected = 0;
+        if (i == cursor) { is_selected = 1; }
+
+        // Highlight bar for selected team
+        if (is_selected == 1) {
+            var bar_color = 16;
+            if (side == 1) { bar_color = 24; }
+            draw_rect(SELECT_CURSOR_X - 2, y - 2, 160, 14, bar_color);
+        }
+
+        // Team jersey color swatch
+        var jersey = roster_jersey_primary(i);
+        draw_rect(SELECT_CURSOR_X, y, 10, 10, jersey);
+
+        // Team name area (colored text placeholder)
+        var text_color = 63;   // white
+        if (is_selected == 1) { text_color = 48; }  // yellow when selected
+
+        // Draw team name as a colored bar (width proportional to name)
+        draw_rect(SELECT_CURSOR_X + 14, y + 2, 130, 6, text_color);
+
+        // Check mark for confirmed team
+        if (home_conf == 1) {
+            if (i == *mp) {
+                // Home team confirmed — draw check
+                draw_rect(SELECT_CURSOR_X + 148, y + 2, 6, 6, 20);  // green
+            }
+        }
+
+        i = i + 1;
+    }
+
+    // Stats panel for highlighted team
+    var sel_team = cursor;
+    var sx = SELECT_STATS_X;
+    var sy = SELECT_LIST_Y;
+
+    // Team name bar
+    draw_rect(sx, sy, 110, 12, 10);    // dark bg
+    var jersey_c = roster_jersey_primary(sel_team);
+    draw_rect(sx + 2, sy + 2, 106, 8, jersey_c);
+
+    // Player stat bars
+    var p = 0;
+    while (p < PLAYERS_PER_TEAM) {
+        var slot = sel_team * 2 + p;
+        var py = sy + 20 + p * 70;
+
+        // Player name placeholder
+        draw_rect(sx, py, 110, 10, 10);
+        draw_rect(sx + 2, py + 2, 106, 6, 63);
+
+        // Stat bars
+        menu_draw_stat_bar(sx, py + 14, "SPD", roster_stat_speed(slot));
+        menu_draw_stat_bar(sx, py + 22, "PWR", roster_stat_power(slot));
+        menu_draw_stat_bar(sx, py + 30, "SHT", roster_stat_shooting(slot));
+        menu_draw_stat_bar(sx, py + 38, "DNK", roster_stat_dunking(slot));
+        menu_draw_stat_bar(sx, py + 46, "STL", roster_stat_stealing(slot));
+        menu_draw_stat_bar(sx, py + 54, "BLK", roster_stat_blocking(slot));
+
+        p = p + 1;
+    }
+}
+
+fn menu_draw_stat_bar(x, y, label, value) {
+    // Background
+    draw_rect(x, y, 110, 6, 5);        // dark gray bg
+
+    // Filled portion (proportional to stat 1-10)
+    var bar_w = value * 10;
+    var bar_color = 20;     // green
+    if (value <= 3) { bar_color = 24; }      // red for low
+    elif (value <= 6) { bar_color = 48; }    // yellow for mid
+
+    draw_rect(x + 30, y + 1, bar_w, 4, bar_color);
+}
+
+// --- Menu input handling ---
+// Returns: 0 = still selecting, 1 = both teams confirmed
+
+fn menu_update_select(dx, dy, confirm, back) {
+    menu_init();
+    var mp: *i64 = _menu;
+    var cursor = *(mp + 4);
+    var side = *(mp + 5);
+
+    // Reset idle timer on input
+    if (dx != 0) { *(mp + 6) = 0; }
+    if (dy != 0) { *(mp + 6) = 0; }
+    if (confirm != 0) { *(mp + 6) = 0; }
+
+    // Navigate up/down
+    if (dy < 0) {
+        cursor = cursor - 1;
+        if (cursor < 0) { cursor = TEAM_COUNT - 1; }
+        *(mp + 4) = cursor;
+    }
+    if (dy > 0) {
+        cursor = cursor + 1;
+        if (cursor >= TEAM_COUNT) { cursor = 0; }
+        *(mp + 4) = cursor;
+    }
+
+    // Confirm selection
+    if (confirm == 1) {
+        if (side == 0) {
+            // Home team confirmed
+            *mp = cursor;
+            *(mp + 2) = 1;
+            *(mp + 5) = 1;         // switch to away selection
+            // Move cursor to a different team
+            cursor = cursor + 1;
+            if (cursor >= TEAM_COUNT) { cursor = 0; }
+            *(mp + 4) = cursor;
+        } else {
+            // Away team confirmed
+            *(mp + 1) = cursor;
+            *(mp + 3) = 1;
+            return 1;               // both confirmed
+        }
+    }
+
+    // Back button: go back to home selection
+    if (back == 1) {
+        if (side == 1) {
+            *(mp + 5) = 0;
+            *(mp + 2) = 0;
+            *(mp + 4) = *mp;    // cursor back to home pick
+        }
+    }
+
+    return 0;
+}
+
+// --- Get selected teams ---
+
+fn menu_get_home_team() {
+    menu_init();
+    var mp: *i64 = _menu;
+    return *mp;
+}
+
+fn menu_get_away_team() {
+    menu_init();
+    var mp: *i64 = _menu;
+    return *(mp + 1);
+}
+
+// --- Idle timer for attract mode ---
+
+fn menu_tick_idle() {
+    menu_init();
+    var mp: *i64 = _menu;
+    *(mp + 6) = *(mp + 6) + 1;
+    *(mp + 7) = *(mp + 7) + 1;
+    return *(mp + 6);
+}
+
+fn menu_should_attract() {
+    menu_init();
+    var mp: *i64 = _menu;
+    if (*(mp + 6) >= ATTRACT_IDLE_FRAMES) { return 1; }
+    return 0;
+}

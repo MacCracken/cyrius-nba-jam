@@ -282,6 +282,31 @@ fn ball_draw(b) {
     var ground_y = court_game_to_screen_y(y);
     sprite_draw_shadow(draw_x, ground_y, draw_w);
 
+    // Fire trail: draw fading trail behind ball if shooter is on fire
+    var last_shooter = *(ptr + 9);
+    if (last_shooter != 0) {
+        if (state == BALL_FLIGHT) {
+            var ls_ptr: *i64 = last_shooter;
+            if (*(ls_ptr + 10) == 1) {
+                // Draw 3 trail segments behind the ball
+                var tvx = *(ptr + 3);
+                var tvy = *(ptr + 4);
+                var t = 1;
+                while (t <= 3) {
+                    var trail_x = draw_x - asr_ball(tvx * t, 16);
+                    var trail_y = draw_y - asr_ball(tvy * t, 16);
+                    var trail_w = draw_w - t;
+                    if (trail_w < 2) { trail_w = 2; }
+                    var trail_color = 48;    // yellow
+                    if (t == 2) { trail_color = 25; }   // orange
+                    if (t == 3) { trail_color = 24; }   // red
+                    draw_rect(trail_x, trail_y, trail_w, trail_w, trail_color);
+                    t = t + 1;
+                }
+            }
+        }
+    }
+
     // Draw ball
     var sprite_data = *(ptr + 10);
     if (sprite_data != 0) {

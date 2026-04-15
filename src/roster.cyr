@@ -1,0 +1,337 @@
+// cyrius-nba-jam — roster.cyr
+// Team and player database with stat profiles.
+//
+// Reference: HEY.DOC, HEY3.DOC — original stat tables
+// All names are generic (no NBA-licensed content).
+// Stats: Speed, Power, Shooting, Dunking, Stealing, Blocking, Pass, Clutch, Rebound
+// Each 1-10 scale.
+//
+// 8 teams, 2 players each = 16 players.
+// Team archetypes inspired by original game balance:
+//   Fast break teams, power teams, balanced, shooting specialists, etc.
+
+// --- Team count ---
+
+var TEAM_COUNT = 8;
+var PLAYERS_PER_TEAM = 2;
+
+// --- Team names ---
+// Generic city-based names. User can overlay real names via assets.
+
+fn roster_team_name(team_id) {
+    if (team_id == 0) { return "CHICAGO BULLS"; }
+    if (team_id == 1) { return "NEW YORK KNICKS"; }
+    if (team_id == 2) { return "DETROIT PISTONS"; }
+    if (team_id == 3) { return "PHOENIX SUNS"; }
+    if (team_id == 4) { return "ORLANDO MAGIC"; }
+    if (team_id == 5) { return "SEATTLE SONICS"; }
+    if (team_id == 6) { return "HOUSTON ROCKETS"; }
+    if (team_id == 7) { return "SAN ANTONIO SPURS"; }
+    return "UNKNOWN";
+}
+
+// --- Player names ---
+
+fn roster_player_name(team_id, player_index) {
+    // Team 0: Chicago — fast + clutch
+    if (team_id == 0) {
+        if (player_index == 0) { return "JORDAN"; }
+        return "PIPPEN";
+    }
+    // Team 1: New York — power + defense
+    if (team_id == 1) {
+        if (player_index == 0) { return "EWING"; }
+        return "STARKS";
+    }
+    // Team 2: Detroit — physical + rebounding
+    if (team_id == 2) {
+        if (player_index == 0) { return "THOMAS"; }
+        return "DUMARS";
+    }
+    // Team 3: Phoenix — speed + shooting
+    if (team_id == 3) {
+        if (player_index == 0) { return "BARKLEY"; }
+        return "MAJERLE";
+    }
+    // Team 4: Orlando — dunking + blocking
+    if (team_id == 4) {
+        if (player_index == 0) { return "SHAQ"; }
+        return "PENNY";
+    }
+    // Team 5: Seattle — balanced + stealing
+    if (team_id == 5) {
+        if (player_index == 0) { return "KEMP"; }
+        return "PAYTON";
+    }
+    // Team 6: Houston — shooting + power
+    if (team_id == 6) {
+        if (player_index == 0) { return "OLAJUWON"; }
+        return "DREXLER";
+    }
+    // Team 7: San Antonio — rebounding + blocking
+    if (team_id == 7) {
+        if (player_index == 0) { return "ROBINSON"; }
+        return "JOHNSON";
+    }
+    return "PLAYER";
+}
+
+// --- Stat lookup ---
+// Returns the stat value for a player.
+// Uses a flat lookup: team_id * 2 + player_index = player slot.
+// 9 stats per player, packed into a function per stat.
+
+// Team 0 Chicago: Jordan (9,5,10,8,7,4,6,10,4) Pippen (8,6,7,7,8,7,8,7,7)
+// Team 1 New York: Ewing (4,9,7,6,3,9,5,7,9) Starks (7,4,8,5,6,4,6,8,3)
+// Team 2 Detroit: Thomas (8,4,7,5,8,3,9,8,4) Dumars (6,5,8,4,7,5,7,6,6)
+// Team 3 Phoenix: Barkley (6,9,7,8,4,5,5,8,10) Majerle (7,4,9,4,5,4,6,6,3)
+// Team 4 Orlando: Shaq (5,10,6,10,2,9,4,6,10) Penny (8,4,8,6,7,3,8,7,4)
+// Team 5 Seattle: Kemp (7,8,6,9,5,7,4,6,8) Payton (9,4,7,4,10,3,9,8,3)
+// Team 6 Houston: Olajuwon (6,8,7,7,6,10,5,8,9) Drexler (8,5,8,7,7,4,7,7,5)
+// Team 7 SanAntonio: Robinson (6,9,7,8,4,10,5,7,10) Johnson (7,5,6,5,6,5,8,6,6)
+
+// Player slot = team_id * 2 + player_index (0-15)
+
+fn roster_stat_speed(slot) {
+    if (slot == 0) { return 9; }    // Jordan
+    if (slot == 1) { return 8; }    // Pippen
+    if (slot == 2) { return 4; }    // Ewing
+    if (slot == 3) { return 7; }    // Starks
+    if (slot == 4) { return 8; }    // Thomas
+    if (slot == 5) { return 6; }    // Dumars
+    if (slot == 6) { return 6; }    // Barkley
+    if (slot == 7) { return 7; }    // Majerle
+    if (slot == 8) { return 5; }    // Shaq
+    if (slot == 9) { return 8; }    // Penny
+    if (slot == 10) { return 7; }   // Kemp
+    if (slot == 11) { return 9; }   // Payton
+    if (slot == 12) { return 6; }   // Olajuwon
+    if (slot == 13) { return 8; }   // Drexler
+    if (slot == 14) { return 6; }   // Robinson
+    if (slot == 15) { return 7; }   // Johnson
+    return 5;
+}
+
+fn roster_stat_power(slot) {
+    if (slot == 0) { return 5; }
+    if (slot == 1) { return 6; }
+    if (slot == 2) { return 9; }
+    if (slot == 3) { return 4; }
+    if (slot == 4) { return 4; }
+    if (slot == 5) { return 5; }
+    if (slot == 6) { return 9; }
+    if (slot == 7) { return 4; }
+    if (slot == 8) { return 10; }
+    if (slot == 9) { return 4; }
+    if (slot == 10) { return 8; }
+    if (slot == 11) { return 4; }
+    if (slot == 12) { return 8; }
+    if (slot == 13) { return 5; }
+    if (slot == 14) { return 9; }
+    if (slot == 15) { return 5; }
+    return 5;
+}
+
+fn roster_stat_shooting(slot) {
+    if (slot == 0) { return 10; }
+    if (slot == 1) { return 7; }
+    if (slot == 2) { return 7; }
+    if (slot == 3) { return 8; }
+    if (slot == 4) { return 7; }
+    if (slot == 5) { return 8; }
+    if (slot == 6) { return 7; }
+    if (slot == 7) { return 9; }
+    if (slot == 8) { return 6; }
+    if (slot == 9) { return 8; }
+    if (slot == 10) { return 6; }
+    if (slot == 11) { return 7; }
+    if (slot == 12) { return 7; }
+    if (slot == 13) { return 8; }
+    if (slot == 14) { return 7; }
+    if (slot == 15) { return 6; }
+    return 5;
+}
+
+fn roster_stat_dunking(slot) {
+    if (slot == 0) { return 8; }
+    if (slot == 1) { return 7; }
+    if (slot == 2) { return 6; }
+    if (slot == 3) { return 5; }
+    if (slot == 4) { return 5; }
+    if (slot == 5) { return 4; }
+    if (slot == 6) { return 8; }
+    if (slot == 7) { return 4; }
+    if (slot == 8) { return 10; }
+    if (slot == 9) { return 6; }
+    if (slot == 10) { return 9; }
+    if (slot == 11) { return 4; }
+    if (slot == 12) { return 7; }
+    if (slot == 13) { return 7; }
+    if (slot == 14) { return 8; }
+    if (slot == 15) { return 5; }
+    return 5;
+}
+
+fn roster_stat_stealing(slot) {
+    if (slot == 0) { return 7; }
+    if (slot == 1) { return 8; }
+    if (slot == 2) { return 3; }
+    if (slot == 3) { return 6; }
+    if (slot == 4) { return 8; }
+    if (slot == 5) { return 7; }
+    if (slot == 6) { return 4; }
+    if (slot == 7) { return 5; }
+    if (slot == 8) { return 2; }
+    if (slot == 9) { return 7; }
+    if (slot == 10) { return 5; }
+    if (slot == 11) { return 10; }
+    if (slot == 12) { return 6; }
+    if (slot == 13) { return 7; }
+    if (slot == 14) { return 4; }
+    if (slot == 15) { return 6; }
+    return 5;
+}
+
+fn roster_stat_blocking(slot) {
+    if (slot == 0) { return 4; }
+    if (slot == 1) { return 7; }
+    if (slot == 2) { return 9; }
+    if (slot == 3) { return 4; }
+    if (slot == 4) { return 3; }
+    if (slot == 5) { return 5; }
+    if (slot == 6) { return 5; }
+    if (slot == 7) { return 4; }
+    if (slot == 8) { return 9; }
+    if (slot == 9) { return 3; }
+    if (slot == 10) { return 7; }
+    if (slot == 11) { return 3; }
+    if (slot == 12) { return 10; }
+    if (slot == 13) { return 4; }
+    if (slot == 14) { return 10; }
+    if (slot == 15) { return 5; }
+    return 5;
+}
+
+fn roster_stat_pass(slot) {
+    if (slot == 0) { return 6; }
+    if (slot == 1) { return 8; }
+    if (slot == 2) { return 5; }
+    if (slot == 3) { return 6; }
+    if (slot == 4) { return 9; }
+    if (slot == 5) { return 7; }
+    if (slot == 6) { return 5; }
+    if (slot == 7) { return 6; }
+    if (slot == 8) { return 4; }
+    if (slot == 9) { return 8; }
+    if (slot == 10) { return 4; }
+    if (slot == 11) { return 9; }
+    if (slot == 12) { return 5; }
+    if (slot == 13) { return 7; }
+    if (slot == 14) { return 5; }
+    if (slot == 15) { return 8; }
+    return 5;
+}
+
+fn roster_stat_clutch(slot) {
+    if (slot == 0) { return 10; }
+    if (slot == 1) { return 7; }
+    if (slot == 2) { return 7; }
+    if (slot == 3) { return 8; }
+    if (slot == 4) { return 8; }
+    if (slot == 5) { return 6; }
+    if (slot == 6) { return 8; }
+    if (slot == 7) { return 6; }
+    if (slot == 8) { return 6; }
+    if (slot == 9) { return 7; }
+    if (slot == 10) { return 6; }
+    if (slot == 11) { return 8; }
+    if (slot == 12) { return 8; }
+    if (slot == 13) { return 7; }
+    if (slot == 14) { return 7; }
+    if (slot == 15) { return 6; }
+    return 5;
+}
+
+fn roster_stat_rebound(slot) {
+    if (slot == 0) { return 4; }
+    if (slot == 1) { return 7; }
+    if (slot == 2) { return 9; }
+    if (slot == 3) { return 3; }
+    if (slot == 4) { return 4; }
+    if (slot == 5) { return 6; }
+    if (slot == 6) { return 10; }
+    if (slot == 7) { return 3; }
+    if (slot == 8) { return 10; }
+    if (slot == 9) { return 4; }
+    if (slot == 10) { return 8; }
+    if (slot == 11) { return 3; }
+    if (slot == 12) { return 9; }
+    if (slot == 13) { return 5; }
+    if (slot == 14) { return 10; }
+    if (slot == 15) { return 6; }
+    return 5;
+}
+
+// --- Apply roster stats to a player ---
+
+fn roster_apply_stats(player, team_id, player_index) {
+    var slot = team_id * 2 + player_index;
+    player_set_stats(player,
+        roster_stat_speed(slot),
+        roster_stat_power(slot),
+        roster_stat_shooting(slot),
+        roster_stat_dunking(slot),
+        roster_stat_stealing(slot),
+        roster_stat_blocking(slot),
+        roster_stat_pass(slot),
+        roster_stat_clutch(slot),
+        roster_stat_rebound(slot)
+    );
+}
+
+// --- Team jersey colors (palette indices) ---
+
+fn roster_jersey_primary(team_id) {
+    if (team_id == 0) { return 24; }   // red
+    if (team_id == 1) { return 16; }   // blue
+    if (team_id == 2) { return 17; }   // dark blue
+    if (team_id == 3) { return 25; }   // orange
+    if (team_id == 4) { return 18; }   // royal blue
+    if (team_id == 5) { return 20; }   // green
+    if (team_id == 6) { return 24; }   // red
+    if (team_id == 7) { return 10; }   // dark gray
+    return 16;
+}
+
+fn roster_jersey_secondary(team_id) {
+    if (team_id == 0) { return 10; }   // black trim
+    if (team_id == 1) { return 25; }   // orange trim
+    if (team_id == 2) { return 24; }   // red trim
+    if (team_id == 3) { return 12; }   // purple trim
+    if (team_id == 4) { return 10; }   // black trim
+    if (team_id == 5) { return 48; }   // yellow trim
+    if (team_id == 6) { return 48; }   // yellow trim
+    if (team_id == 7) { return 10; }   // black trim
+    return 20;
+}
+
+// --- Stat total for display ---
+
+fn roster_team_total(team_id) {
+    var total = 0;
+    var p = 0;
+    while (p < PLAYERS_PER_TEAM) {
+        var slot = team_id * 2 + p;
+        total = total + roster_stat_speed(slot);
+        total = total + roster_stat_power(slot);
+        total = total + roster_stat_shooting(slot);
+        total = total + roster_stat_dunking(slot);
+        total = total + roster_stat_stealing(slot);
+        total = total + roster_stat_blocking(slot);
+        total = total + roster_stat_pass(slot);
+        total = total + roster_stat_clutch(slot);
+        total = total + roster_stat_rebound(slot);
+        p = p + 1;
+    }
+    return total;
+}

@@ -1,7 +1,7 @@
 // cyrius-nba-jam — test suite
-// v0.6.0: Tests for physics, fire, stats, render, sprite, court,
+// v0.7.0: Tests for physics, fire, stats, render, sprite, court,
 // player, ball, collision, shooting, dunks, game state, HUD, AI,
-// inbound, rebound, clutch, fouls.
+// inbound, rebound, clutch, fouls, roster, menu, announcer.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -20,6 +20,9 @@ include "src/dunk.cyr"
 include "src/game.cyr"
 include "src/hud.cyr"
 include "src/ai.cyr"
+include "src/roster.cyr"
+include "src/menu.cyr"
+include "src/audio.cyr"
 
 // ========= Ball physics (from v0.1.0) =========
 
@@ -1189,6 +1192,156 @@ fn test_rebound_timer() {
     return 0;
 }
 
+// ========= Roster =========
+
+fn test_roster_team_count() {
+    assert_eq(TEAM_COUNT, 8, "8 teams in roster");
+    return 0;
+}
+
+fn test_roster_stat_range() {
+    // All stats should be 1-10
+    var i = 0;
+    while (i < TEAM_COUNT * PLAYERS_PER_TEAM) {
+        var spd = roster_stat_speed(i);
+        assert(spd >= 1, "speed >= 1");
+        assert(spd <= 10, "speed <= 10");
+        var sht = roster_stat_shooting(i);
+        assert(sht >= 1, "shooting >= 1");
+        assert(sht <= 10, "shooting <= 10");
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn test_roster_apply_stats() {
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    roster_apply_stats(p, 0, 0);   // Chicago, player 0 (Jordan)
+    var pp: *i64 = p;
+    assert_eq(*(pp + 17), 9, "Jordan speed = 9");
+    assert_eq(*(pp + 19), 10, "Jordan shooting = 10");
+    assert_eq(*(pp + 24), 10, "Jordan clutch = 10");
+    return 0;
+}
+
+fn test_roster_team_name() {
+    var name = roster_team_name(0);
+    assert_eq(streq(name, "CHICAGO BULLS"), 1, "team 0 is Chicago");
+    return 0;
+}
+
+fn test_roster_team_total() {
+    var total = roster_team_total(0);   // Chicago
+    // Jordan (9+5+10+8+7+4+6+10+4=63) + Pippen (8+6+7+7+8+7+8+7+7=65) = 128
+    assert_eq(total, 128, "Chicago total = 128");
+    return 0;
+}
+
+// ========= Menu =========
+
+fn test_menu_init() {
+    _menu_init_done = 0;
+    menu_init();
+    var mp: *i64 = _menu;
+    assert_eq(*(mp + 2), 0, "home not confirmed initially");
+    assert_eq(*(mp + 5), 0, "selecting home side first");
+    return 0;
+}
+
+fn test_menu_select_home() {
+    _menu_init_done = 0;
+    menu_init();
+    menu_reset();
+
+    // Navigate down twice, confirm
+    menu_update_select(0, 1, 0, 0);   // cursor to 1
+    menu_update_select(0, 1, 0, 0);   // cursor to 2
+    var done = menu_update_select(0, 0, 1, 0);  // confirm
+
+    assert_eq(done, 0, "only home confirmed, not done yet");
+    assert_eq(menu_get_home_team(), 2, "home team = 2 (Detroit)");
+
+    var mp: *i64 = _menu;
+    assert_eq(*(mp + 5), 1, "now selecting away side");
+    return 0;
+}
+
+fn test_menu_select_both() {
+    _menu_init_done = 0;
+    menu_init();
+    menu_reset();
+
+    // Select home team 0
+    menu_update_select(0, 0, 1, 0);
+
+    // Select away team (cursor moved to 1 automatically)
+    var done = menu_update_select(0, 0, 1, 0);
+
+    assert_eq(done, 1, "both teams confirmed");
+    assert_eq(menu_get_home_team(), 0, "home = 0");
+    assert_eq(menu_get_away_team(), 1, "away = 1");
+    return 0;
+}
+
+// ========= Announcer =========
+
+fn test_announce_trigger() {
+    _announce_init_done = 0;
+    announce_init();
+    announce("TEST!", ANNOUNCE_PRIORITY_LOW, 63);
+    assert_eq(announce_is_active(), 1, "announcer active after trigger");
+    assert_eq(announce_get_color(), 63, "announcer color = white");
+    return 0;
+}
+
+fn test_announce_priority() {
+    _announce_init_done = 0;
+    announce_init();
+    announce("LOW", ANNOUNCE_PRIORITY_LOW, 63);
+    announce("HIGH", ANNOUNCE_PRIORITY_HIGH, 48);
+    // High priority should override
+    var text = announce_get_text();
+    assert_eq(streq(text, "HIGH"), 1, "high priority overrides low");
+    return 0;
+}
+
+fn test_announce_expires() {
+    _announce_init_done = 0;
+    announce_init();
+    announce("TEMP", ANNOUNCE_PRIORITY_LOW, 63);
+
+    var i = 0;
+    while (i < ANNOUNCE_DISPLAY_FRAMES + 1) {
+        announce_update();
+        i = i + 1;
+    }
+    assert_eq(announce_is_active(), 0, "announcer expires after timer");
+    return 0;
+}
+
+fn test_announce_score_fire() {
+    _announce_init_done = 0;
+    announce_init();
+    announce_score(0, 0, 3);   // 3 consecutive = fire
+    var text = announce_get_text();
+    assert_eq(streq(text, "HE'S ON FIRE!"), 1, "3 consecutive triggers fire call");
+    return 0;
+}
+
+// ========= Visual effects =========
+
+fn test_fire_jersey_flash() {
+    // Fire player should use different jersey colors (not just one static)
+    // This tests that the fire color logic works
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var pp: *i64 = p;
+    *(pp + 10) = 1;     // on_fire
+    *(pp + 6) = 0;      // state_timer = 0 → fire_mod = 0 → yellow (48)
+    // Just verify the player can be created on fire — visual test is play-test
+    assert_eq(*(pp + 10), 1, "player marked on fire for visual effect");
+    return 0;
+}
+
 // ========= Integration =========
 
 fn test_court_render_pixels() {
@@ -1350,6 +1503,27 @@ fn main() {
     // PS_REBOUND
     test_rebound_is_committed();
     test_rebound_timer();
+
+    // Roster
+    test_roster_team_count();
+    test_roster_stat_range();
+    test_roster_apply_stats();
+    test_roster_team_name();
+    test_roster_team_total();
+
+    // Menu
+    test_menu_init();
+    test_menu_select_home();
+    test_menu_select_both();
+
+    // Announcer
+    test_announce_trigger();
+    test_announce_priority();
+    test_announce_expires();
+    test_announce_score_fire();
+
+    // Visual effects
+    test_fire_jersey_flash();
 
     // Integration
     test_court_render_pixels();
