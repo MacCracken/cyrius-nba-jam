@@ -313,6 +313,146 @@ fn collision_player_player(p1, p2) {
     }
 }
 
+// --- Steal attempt ---
+// Returns 1 if steal succeeds, 0 otherwise.
+// Stealer must be near ball handler. Probability based on Stealing stat.
+
+var STEAL_RADIUS = 327680;     // 5.0 — must be this close to attempt
+var _steal_rng = 11111;
+
+fn steal_rng() {
+    _steal_rng = _steal_rng * 6364136223846793005 + 1442695040888963407;
+    var r = (_steal_rng >> 33) & 2147483647;
+    if (r < 0) { r = 0 - r; }
+    return r;
+}
+
+fn steal_rng_range(max) {
+    if (max <= 0) { return 0; }
+    var r = steal_rng();
+    return r - (r / max) * max;
+}
+
+fn collision_try_steal(stealer, ball_handler, ball) {
+    var sp: *i64 = stealer;
+    var hp: *i64 = ball_handler;
+
+    // Must be different teams
+    if (*(sp + 7) == *(hp + 7)) { return 0; }
+
+    // Must be close
+    var d2 = dist_sq(*sp, *(sp + 1), *hp, *(hp + 1));
+    var r2 = radius_sq(STEAL_RADIUS);
+    if (d2 > r2) { return 0; }
+
+    // Probability: stealer's Stealing stat * 6 out of 100
+    // (lower than shooting — steals are hard)
+    var steal_stat = *(sp + 21);
+    var prob = steal_stat * 6;
+    var roll = steal_rng_range(100);
+
+    if (roll < prob) {
+        // Success: knock ball loose
+        ball_release_from(ball, ball_handler);
+
+        // Launch ball in random direction (loose ball)
+        var loose_vx = steal_rng_range(131072) - 65536;   // ±1.0
+        var loose_vy = steal_rng_range(131072) - 65536;
+        ball_launch(ball, loose_vx, loose_vy, 32768);      // slight upward pop (0.5)
+
+        // Put stealer in STEAL animation
+        player_try_transition(stealer, PS_STEAL);
+        return 1;
+    }
+
+    // Failed steal — still play the animation
+    player_try_transition(stealer, PS_STEAL);
+    return 0;
+}
+
+// --- Block attempt ---
+// Returns 1 if block succeeds, 0 otherwise.
+// Blocker must be near shooter who is in SHOOT state.
+
+var BLOCK_RADIUS = 393216;     // 6.0 — contest range
+
+fn collision_try_block(blocker, shooter, ball) {
+    var bp: *i64 = blocker;
+    var sp: *i64 = shooter;
+
+    // Must be different teams
+    if (*(bp + 7) == *(sp + 7)) { return 0; }
+
+    // Shooter must be in SHOOT state
+    if (*(sp + 4) != PS_SHOOT) { return 0; }
+
+    // Must be close
+    var d2 = dist_sq(*bp, *(bp + 1), *sp, *(sp + 1));
+    var r2 = radius_sq(BLOCK_RADIUS);
+    if (d2 > r2) { return 0; }
+
+    // Probability: blocker's Blocking stat * 7 out of 100
+    var block_stat = *(bp + 22);
+    var prob = block_stat * 7;
+    var roll = steal_rng_range(100);
+
+    if (roll < prob) {
+        // Success: deflect ball
+        var ballp: *i64 = ball;
+        var state = *(ballp + 6);
+        if (state == BALL_FLIGHT) {
+            // Reverse and randomize ball velocity
+            var vx = *(ballp + 3);
+            var vy = *(ballp + 4);
+            *(ballp + 3) = 0 - vx + steal_rng_range(65536) - 32768;
+            *(ballp + 4) = 0 - vy + steal_rng_range(65536) - 32768;
+            *(ballp + 5) = steal_rng_range(65536);    // random upward pop
+        }
+
+        player_try_transition(blocker, PS_BLOCK);
+        return 1;
+    }
+
+    // Failed block
+    player_try_transition(blocker, PS_BLOCK);
+    return 0;
+}
+
+// --- Pass interception ---
+// Check if an opposing player can intercept a ball in flight.
+
+var INTERCEPT_RADIUS = 262144;  // 4.0
+
+fn collision_check_intercept(ball, players, player_count, passing_team) {
+    var ballp: *i64 = ball;
+    if (*(ballp + 6) != BALL_FLIGHT) { return 0; }
+
+    // Ball must be below catch height
+    if (*(ballp + 2) > 524288) { return 0; }  // > 8.0
+
+    var bx = *ballp;
+    var by = *(ballp + 1);
+
+    var i = 0;
+    while (i < player_count) {
+        var p = load64(players + i * 8);
+        var pp: *i64 = p;
+
+        // Only opposing team can intercept
+        if (*(pp + 7) != passing_team) {
+            var d2 = dist_sq(bx, by, *pp, *(pp + 1));
+            var r2 = radius_sq(INTERCEPT_RADIUS);
+            if (d2 <= r2) {
+                // Intercept: give ball to this player
+                ball_give_to(ball, p);
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
 // --- Run all collision checks for a frame ---
 
 fn collision_update(ball, players, player_count) {

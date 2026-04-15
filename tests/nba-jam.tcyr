@@ -442,6 +442,140 @@ fn test_hud_renders() {
     return 0;
 }
 
+// ========= Steal =========
+
+fn test_steal_close() {
+    var stealer = player_new(TEAM_AWAY, 0, 6619136, 8519680);  // very close to handler
+    player_set_stats(stealer, 5, 5, 5, 5, 10, 5, 5, 5, 5);    // max steal stat
+
+    var handler = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var hp: *i64 = handler;
+    *(hp + 9) = 1;     // has_ball
+
+    var b = ball_new(6553600, 8519680);
+    ball_give_to(b, handler);
+
+    // With steal stat 10, probability is 60%. Try multiple times.
+    _steal_rng = 1;     // seed for reproducibility
+    var stolen = 0;
+    var attempts = 20;
+    var i = 0;
+    while (i < attempts) {
+        // Reset state for each attempt
+        ball_give_to(b, handler);
+        var result = collision_try_steal(stealer, handler, b);
+        if (result == 1) { stolen = stolen + 1; }
+        i = i + 1;
+    }
+    assert(stolen > 0, "steal succeeds at least once in 20 tries with stat 10");
+    assert(stolen < attempts, "steal doesn't always succeed");
+    return 0;
+}
+
+fn test_steal_different_team_only() {
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var p2 = player_new(TEAM_HOME, 1, 6619136, 8519680);   // same team
+    player_set_stats(p1, 5, 5, 5, 5, 10, 5, 5, 5, 5);
+
+    var b = ball_new(6553600, 8519680);
+    ball_give_to(b, p2);
+
+    var result = collision_try_steal(p1, p2, b);
+    assert_eq(result, 0, "can't steal from teammate");
+    return 0;
+}
+
+// ========= Block =========
+
+fn test_block_requires_shoot_state() {
+    var blocker = player_new(TEAM_AWAY, 0, 6619136, 8519680);
+    player_set_stats(blocker, 5, 5, 5, 5, 5, 10, 5, 5, 5);    // max block
+
+    var shooter = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    // Shooter NOT in shoot state
+    var sp: *i64 = shooter;
+    *(sp + 4) = PS_RUN;
+
+    var b = ball_new(6553600, 8519680);
+    var result = collision_try_block(blocker, shooter, b);
+    assert_eq(result, 0, "can't block non-shooter");
+    return 0;
+}
+
+// ========= Pass interception =========
+
+fn test_intercept_close() {
+    var b = ball_new(10485760, 8519680);    // ball at (160, 130)
+    var bp: *i64 = b;
+    *(bp + 6) = BALL_FLIGHT;
+    *(bp + 2) = 196608;     // z = 3.0 (catchable height)
+
+    // Defender right on the ball path
+    var defender = player_new(TEAM_AWAY, 0, 10485760, 8519680);
+    var players[1];
+    store64(&players, defender);
+
+    var result = collision_check_intercept(b, &players, 1, TEAM_HOME);
+    assert_eq(result, 1, "defender intercepts pass");
+    assert_eq(*(bp + 6), BALL_HELD, "ball now held by interceptor");
+    return 0;
+}
+
+fn test_intercept_same_team_ignored() {
+    var b = ball_new(10485760, 8519680);
+    var bp: *i64 = b;
+    *(bp + 6) = BALL_FLIGHT;
+    *(bp + 2) = 196608;
+
+    // Same team player — should not intercept
+    var teammate = player_new(TEAM_HOME, 1, 10485760, 8519680);
+    var players[1];
+    store64(&players, teammate);
+
+    var result = collision_check_intercept(b, &players, 1, TEAM_HOME);
+    assert_eq(result, 0, "teammate doesn't intercept own pass");
+    return 0;
+}
+
+// ========= Turbo =========
+
+fn test_turbo_drain() {
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    player_set_stats(p, 7, 5, 8, 6, 4, 5, 6, 7, 5);
+    var ptr: *i64 = p;
+    var initial_turbo = *(ptr + 11);
+
+    // Use turbo for 10 frames
+    var i = 0;
+    while (i < 10) {
+        player_apply_input(p, 1, 0, 1);   // turbo = 1
+        player_update(p);
+        i = i + 1;
+    }
+
+    assert(*(ptr + 11) < initial_turbo, "turbo drains during use");
+    return 0;
+}
+
+fn test_turbo_fire_infinite() {
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    player_set_stats(p, 7, 5, 8, 6, 4, 5, 6, 7, 5);
+    var ptr: *i64 = p;
+    *(ptr + 10) = 1;    // on_fire
+    *(ptr + 11) = 50;   // start at half turbo
+
+    // Use turbo for 10 frames while on fire
+    var i = 0;
+    while (i < 10) {
+        player_apply_input(p, 1, 0, 1);
+        i = i + 1;
+    }
+
+    // Turbo should not have drained (fire = infinite)
+    assert_eq(*(ptr + 11), 50, "fire mode: turbo doesn't drain");
+    return 0;
+}
+
 // ========= Integration =========
 
 fn test_court_render_pixels() {
@@ -534,6 +668,21 @@ fn main() {
     // HUD
     test_hud_digit();
     test_hud_renders();
+
+    // Steal
+    test_steal_close();
+    test_steal_different_team_only();
+
+    // Block
+    test_block_requires_shoot_state();
+
+    // Interception
+    test_intercept_close();
+    test_intercept_same_team_ignored();
+
+    // Turbo
+    test_turbo_drain();
+    test_turbo_fire_infinite();
 
     // Integration
     test_court_render_pixels();

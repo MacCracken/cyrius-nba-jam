@@ -47,13 +47,17 @@ The ball is the game.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | Player switching (swap active player) | Not started | |
-| 2 | Pass mechanic — lead pass to teammate | Not started | Pass speed based on Pass stat |
-| 3 | Steal mechanic — proximity + Stealing stat | Not started | |
-| 4 | Basic blocking — contest shots | Not started | Block stat vs shot timing |
-| 5 | Turbo meter — boost speed, deplete, recharge | Not started | |
+| 1 | Player switching (C key, same team) | Done | Cycles to teammate, auto-switch on turnover planned |
+| 2 | Lead passing — aim where teammate will be | Done | Position + velocity * 8 frames, speed scales with Pass stat (10→10f, 1→19f) |
+| 3 | Steal mechanic — V key, proximity + Stealing stat | Done | Probability: stat*6/100, knocks ball loose, committed STEAL animation (12f) |
+| 4 | Block mechanic — V key near shooter, Blocking stat | Done | Probability: stat*7/100, deflects with reversed+random velocity, committed BLOCK animation (20f) |
+| 5 | Pass interception — auto-intercept in flight path | Done | Opposing player within 4.0 radius of low-altitude pass catches it |
+| 6 | Turbo refinement — scaled drain, fire infinite, cooldown | Done | Run=1/f, shoot=3, dunk=5. 30f cooldown before recharge. Fire = no drain |
 
-**Exit criteria**: Two human-controlled players pass, steal, block, use turbo.
+**Lines**: 3479 source + 695 test = 4174 total.
+**Tests**: 47 assertions (7 new: steal, block, intercept, turbo).
+
+**Exit criteria**: Two human-controlled players pass, steal, block, use turbo. ✓
 
 ## v0.4.0 — Dunks
 

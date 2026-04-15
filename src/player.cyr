@@ -28,9 +28,13 @@ var PLAYER_ACCEL = 3277;           // 0.05 per frame
 var PLAYER_DECEL = 6554;           // 0.1 per frame (friction)
 var PLAYER_MAX_SPEED = 19661;      // 0.3 per frame (base, modified by Speed stat)
 var PLAYER_TURBO_MULT = 26214;     // 0.4 (turbo max speed)
-var TURBO_DRAIN = 1;               // per frame while turbo active
-var TURBO_RECHARGE = 1;            // per frame while turbo inactive
+var TURBO_DRAIN_RUN = 1;           // per frame while turbo running
+var TURBO_DRAIN_SHOOT = 3;        // cost to turbo-shoot
+var TURBO_DRAIN_DUNK = 5;         // cost to turbo-dunk
+var TURBO_RECHARGE = 1;           // per frame while turbo inactive
+var TURBO_RECHARGE_DELAY = 30;    // frames after last use before recharge starts
 var TURBO_MAX = 100;
+var _turbo_cooldown = 0;          // frames until recharge resumes
 
 // Committed state durations (frames at 60fps)
 var SHOOT_FRAMES = 30;     // 0.5s
@@ -186,11 +190,17 @@ fn player_apply_input(p, dx, dy, use_turbo) {
     var max_speed = PLAYER_MAX_SPEED * (5 + speed_stat) / 10;
     if (use_turbo == 1) {
         var turbo = *(ptr + 11);
-        if (turbo > 0) {
+        var on_fire = *(ptr + 10);
+        if (on_fire == 1) {
+            // Fire mode: infinite turbo
             max_speed = PLAYER_TURBO_MULT * (5 + speed_stat) / 10;
-            turbo = turbo - TURBO_DRAIN;
+            _turbo_cooldown = TURBO_RECHARGE_DELAY;
+        } elif (turbo > 0) {
+            max_speed = PLAYER_TURBO_MULT * (5 + speed_stat) / 10;
+            turbo = turbo - TURBO_DRAIN_RUN;
             if (turbo < 0) { turbo = 0; }
             *(ptr + 11) = turbo;
+            _turbo_cooldown = TURBO_RECHARGE_DELAY;
         }
     }
 
@@ -289,12 +299,16 @@ fn player_update(p) {
     // Tick state timer
     player_tick_state(p);
 
-    // Recharge turbo when not using it
-    var turbo = *(ptr + 11);
-    if (turbo < TURBO_MAX) {
-        turbo = turbo + TURBO_RECHARGE;
-        if (turbo > TURBO_MAX) { turbo = TURBO_MAX; }
-        *(ptr + 11) = turbo;
+    // Recharge turbo (with cooldown delay after use)
+    if (_turbo_cooldown > 0) {
+        _turbo_cooldown = _turbo_cooldown - 1;
+    } else {
+        var turbo = *(ptr + 11);
+        if (turbo < TURBO_MAX) {
+            turbo = turbo + TURBO_RECHARGE;
+            if (turbo > TURBO_MAX) { turbo = TURBO_MAX; }
+            *(ptr + 11) = turbo;
+        }
     }
 
     // Return to idle if stopped moving

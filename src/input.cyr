@@ -10,6 +10,8 @@
 //   Space             — shoot / action
 //   Z                 — pass
 //   X                 — turbo
+//   C                 — switch player (teammate)
+//   V                 — steal / block
 //   P                 — PPM screenshot
 //   Q / ESC           — quit
 
@@ -47,6 +49,8 @@ var _input_pass = 0;
 var _input_turbo = 0;
 var _input_quit = 0;
 var _input_screenshot = 0;
+var _input_switch = 0;
+var _input_steal = 0;
 
 fn input_init() {
     if (_input_ready == 1) { return; }
@@ -87,6 +91,8 @@ fn input_poll() {
     _input_pass = 0;
     _input_turbo = 0;
     _input_screenshot = 0;
+    _input_switch = 0;
+    _input_steal = 0;
 
     // Read all available input bytes (non-blocking)
     var buf[4];    // enough for escape sequences
@@ -136,6 +142,14 @@ fn input_poll() {
         if (ch == 120) { _input_turbo = 1; }  // 'x' = turbo
         if (ch == 88) { _input_turbo = 1; }   // 'X' = turbo
 
+        // Switch player
+        if (ch == 99) { _input_switch = 1; }   // 'c' = switch
+        if (ch == 67) { _input_switch = 1; }   // 'C'
+
+        // Steal/block
+        if (ch == 118) { _input_steal = 1; }   // 'v' = steal/block
+        if (ch == 86) { _input_steal = 1; }    // 'V'
+
         // Screenshot
         if (ch == 112) { _input_screenshot = 1; }  // 'p' = PPM screenshot
         if (ch == 80) { _input_screenshot = 1; }   // 'P'
@@ -152,3 +166,5 @@ fn input_pass() { return _input_pass; }
 fn input_turbo() { return _input_turbo; }
 fn input_quit() { return _input_quit; }
 fn input_screenshot() { return _input_screenshot; }
+fn input_switch() { return _input_switch; }
+fn input_steal() { return _input_steal; }

@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-04-14
+
+### Added
+- **Player switching** — C key to swap control to teammate on same team
+- **Steal mechanic** — V key near ball handler attempts steal. Probability: Stealing stat * 6 out of 100. Success knocks ball loose in random direction. Both success and failure play STEAL animation (committed, 12 frames)
+- **Block mechanic** — V key near opponent in SHOOT state attempts block. Probability: Blocking stat * 7 out of 100. Success deflects ball with reversed + randomized velocity. BLOCK animation (committed, 20 frames)
+- **Pass interception** — Opposing players within 4.0 radius of a pass in flight automatically intercept (ball given to interceptor). Only triggers on low-altitude balls (z < 8.0)
+- **Lead passing** — Pass now aims where teammate will be (current position + velocity * 8 frames ahead). Pass speed scales with Pass stat (stat 10 = 10 frames travel, stat 1 = 19 frames)
+- **Turbo refinement** — Scaled drain rates (run=1/frame, shoot=3, dunk=5). Fire mode = infinite turbo. 30-frame cooldown before recharge starts after turbo use
+- **Input expansion** — C = switch player, V = steal/block
+- 7 new test assertions (47 total): steal success/same-team rejection, block requires SHOOT state, interception close/same-team ignored, turbo drain/fire-infinite
+
+### Project stats
+- 12 source modules, 1 test file
+- 3479 lines of Cyrius source + 695 lines of tests = 4174 total
+
 ## [0.2.0] — 2026-04-14
 
 ### Added
