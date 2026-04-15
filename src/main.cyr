@@ -490,6 +490,90 @@ fn get_time_ns() {
     return load64(&ts) * 1000000000 + load64(&ts + 8);
 }
 
+// --- PPM screenshot mode ---
+// Renders multiple screenshots covering the full game flow.
+// Pattern from cyrius-doom and encom-hits: render each state, write PPM, move on.
+
+fn ppm_screenshot_mode() {
+    println("PPM screenshot mode");
+
+    // 1. Title screen
+    menu_init();
+    menu_draw_title();
+    render_write_ppm("/tmp/nba-jam_title.ppm");
+    println("  wrote /tmp/nba-jam_title.ppm");
+
+    // 2. Team select (home picking)
+    menu_reset();
+    menu_draw_select();
+    render_write_ppm("/tmp/nba-jam_select.ppm");
+    println("  wrote /tmp/nba-jam_select.ppm");
+
+    // 3. Difficulty screen
+    menu_draw_difficulty();
+    render_write_ppm("/tmp/nba-jam_difficulty.ppm");
+    println("  wrote /tmp/nba-jam_difficulty.ppm");
+
+    // 4. Gameplay — Chicago vs Seattle, simulate a few frames
+    game_start_match(0, 5);
+
+    // Simulate 60 frames of AI play to get interesting positions
+    ai_set_active(0, 1);   // all AI for screenshot
+    var i = 0;
+    while (i < 60) {
+        var gp_s: *i64 = _game;
+        if (*gp_s == STATE_TIPOFF) {
+            game_update(_game, _ball, &_players, _player_count);
+        } else {
+            game_update_all();
+        }
+        i = i + 1;
+    }
+
+    game_render_all();
+    render_write_ppm("/tmp/nba-jam_game.ppm");
+    println("  wrote /tmp/nba-jam_game.ppm");
+
+    // 5. Gameplay with HUD and announcer
+    announce("BOOMSHAKALAKA!", ANNOUNCE_PRIORITY_HIGH, 48);
+    game_render_all();
+    announce_draw();
+    render_write_ppm("/tmp/nba-jam_action.ppm");
+    println("  wrote /tmp/nba-jam_action.ppm");
+
+    // 6. Fire effect — put a player on fire and render
+    var fire_p = load64(&_players);
+    var fire_pp: *i64 = fire_p;
+    *(fire_pp + 10) = 1;    // on_fire
+    *(fire_pp + 9) = 1;     // has_ball
+    announce("HE'S ON FIRE!", ANNOUNCE_PRIORITY_FIRE, 24);
+    game_render_all();
+    announce_draw();
+    render_write_ppm("/tmp/nba-jam_fire.ppm");
+    println("  wrote /tmp/nba-jam_fire.ppm");
+
+    // 7. Dunk in progress — position player near rim in dunk state
+    var dunk_p = load64(&_players);
+    var dp: *i64 = dunk_p;
+    *dp = RIM_RIGHT_X - 196608;    // near rim
+    *(dp + 1) = RIM_Y;
+    *(dp + 4) = PS_DUNK;
+    *(dp + 6) = 20;                // mid-dunk
+    game_render_all();
+    announce("MONSTER JAM!", ANNOUNCE_PRIORITY_HIGH, 48);
+    announce_draw();
+    render_write_ppm("/tmp/nba-jam_dunk.ppm");
+    println("  wrote /tmp/nba-jam_dunk.ppm");
+
+    var pixels = render_pixel_count();
+    print("pixels in final frame: ");
+    fmt_int(pixels);
+    print("/");
+    fmt_int(SCREEN_W * SCREEN_H);
+    println("");
+    println("7 screenshots written to /tmp/nba-jam_*.ppm");
+}
+
 // --- Main ---
 
 fn main() {
@@ -507,16 +591,7 @@ fn main() {
     println("cyrius-nba-jam v1.0.0");
 
     if (_ppm_mode == 1) {
-        // Quick start for screenshot mode
-        game_start_match(0, 5);   // default teams
-        game_render_all();
-        render_write_ppm("/tmp/nba-jam.ppm");
-        var pixels = render_pixel_count();
-        print("wrote /tmp/nba-jam.ppm — pixels: ");
-        fmt_int(pixels);
-        print("/");
-        fmt_int(SCREEN_W * SCREEN_H);
-        println("");
+        ppm_screenshot_mode();
         return 0;
     }
 

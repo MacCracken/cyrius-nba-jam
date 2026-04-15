@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 - **Difficulty selection UI** — Screen between team select and game start. Easy/Medium/Hard with visual indicators (green/yellow/red). Arrow keys navigate, shoot confirms. Difficulty maps to AI system's Easy (halved probs, slow reactions), Medium (baseline), Hard (1.5x probs, near-instant reactions). Wrapping cursor navigation.
 - **Frame budget tracking** — Counts frames that exceed 16.67ms target. Tracks maximum frame time. Reports at exit: "frames over budget: N/total  max frame: Nus". Enables performance regression detection.
+- **Multi-frame PPM screenshot mode** — `--ppm` now produces 7 screenshots covering the full game flow (matching cyrius-doom and encom-hits patterns): title screen, team select, difficulty select, gameplay (60 frames of AI simulation), action with announcer overlay, fire effect (on-fire player + ball trail), dunk in progress. Output: `/tmp/nba-jam_*.ppm`.
 
 ### Fixed
 - **Security: division-by-zero guards** — shoot.cyr: flight_time clamped to minimum 1 in both compute_shot_velocity and compute_shot. Prevents crash on degenerate trajectory calculations.
@@ -23,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Project stats
 - 17 source modules, 1 test file
-- 6347 lines of Cyrius source + 1660 lines of tests = 8007 total
+- 6422 lines of Cyrius source + 1660 lines of tests = 8082 total
 - Zero external dependencies
 
 ## [0.7.0] — 2026-04-15
