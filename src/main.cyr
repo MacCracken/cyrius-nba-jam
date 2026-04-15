@@ -4,7 +4,7 @@
 # Reference: historicalsource/nba-jam (TMS34010 assembly)
 # All code is new Cyrius -- the original is design reference only.
 #
-# v1.0.0: Complete NBA Jam reimplementation in Cyrius.
+# v0.5.0: Game systems complete with placeholder art. Needs real assets for 1.0.
 # Title screen -> team select -> difficulty -> gameplay -> game over -> menu.
 
 include "lib/string.cyr"
@@ -588,7 +588,7 @@ fn main() {
 
     game_init_all();
 
-    println("cyrius-nba-jam v1.0.0");
+    println("cyrius-nba-jam v0.5.0");
 
     if (_ppm_mode == 1) {
         ppm_screenshot_mode();

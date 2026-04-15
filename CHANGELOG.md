@@ -6,7 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-## [1.0.0] — 2026-04-15
+## [0.5.0] — 2026-04-15
+
+All game systems complete with placeholder art. Consolidated from development sprints (AI, game flow, menus, hardening, visual fixes).
+See individual entries below for detailed breakdowns.
+
+## Prior [1.0.0] entries (now reclassified as 0.5.0 development sprints)
+
+### Hardening sprint — 2026-04-15
 
 ### Added
 - **Difficulty selection UI** — Screen between team select and game start. Easy/Medium/Hard with visual indicators (green/yellow/red). Arrow keys navigate, shoot confirms. Difficulty maps to AI system's Easy (halved probs, slow reactions), Medium (baseline), Hard (1.5x probs, near-instant reactions). Wrapping cursor navigation.

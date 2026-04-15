@@ -1,6 +1,6 @@
 # cyrius-nba-jam Development Roadmap
 
-> **Status**: v1.0.0 complete | **Last Updated**: 2026-04-15
+> **Status**: v0.5.0 — game systems complete, placeholder art | **Last Updated**: 2026-04-15
 
 ---
 
@@ -77,77 +77,81 @@ The spectacle. BOOMSHAKALAKA!
 
 **Exit criteria**: Players can dunk, with multiple animation types and alley-oops. ✓
 
-## v0.5.0 — Drone AI
+## v0.5.0 — All Game Systems (Placeholder Art)
 
-The game plays back.
+Everything from AI through menus, hardening, and visual polish. All game mechanics work. All placeholder art — no real sprites loaded.
 
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | ai.cyr — offensive decisions (shoot/pass/drive/dunk) | Done | 723 lines. Ball handler AI: dunk priority near rim, stat-driven shot selection, lead pass to open teammates, drive toward basket. Off-ball: positional movement for pass reception |
-| 2 | Defensive AI — mark player, contest shots, steal | Done | Chase ball handler, position between handler and basket, steal/block attempts with cooldowns, goal tending check before blocks, loose ball pursuit, mark nearest opponent |
-| 3 | AI difficulty scaling — attribute modifiers per difficulty | Done | 3 levels: Easy (halved probs, 20f delay), Medium (baseline, 10f delay), Hard (1.5x probs, 3f delay, turbo chase) |
-| 4 | Teammate AI when not player-controlled | Done | Off-ball offense positioning, defensive marking. C key switches human control + toggles AI active state |
+| # | System | Status | Notes |
+|---|--------|--------|-------|
+| 1 | Drone AI (ai.cyr, 723 lines) | Done | Offensive/defensive AI, 3 difficulty levels, teammate AI, off-ball positioning |
+| 2 | Game flow polish | Done | Inbound, rebounding, clutch stat, pushing fouls, auto-switch on turnover, dead ball recovery |
+| 3 | Menus + roster (menu.cyr, roster.cyr) | Done | Title screen, team select with stat bars, difficulty select. 8 teams, 16 players |
+| 4 | Announcer (audio.cyr) | Done | Text-based bitmap font announcer. BOOMSHAKALAKA, HE'S ON FIRE, REJECTED, etc. |
+| 5 | Visual effects | Done | Fire jersey flash, ball trail, state-based player color, 2px court lines, circle ball |
+| 6 | Hardening + security audit | Done | Bounds clamping, div-by-zero guards, null checks, frame budget tracking |
+| 7 | PPM screenshot mode | Done | 7 screenshots covering title/select/difficulty/game/action/fire/dunk |
 
-**Lines**: 4654 source + 1120 test = 5774 total across 14 modules.
-**Tests**: 76 assertions (18 new: AI init, decisions, movement, difficulty, openness).
+**Lines**: ~6400 source + ~1660 test = ~8060 total across 17 modules.
+**Tests**: 132 assertions.
 
-**Exit criteria**: Full 2-on-2 game against AI opponents. Competitive, not trivial. ✓
+**Exit criteria**: Complete game loop from title screen through gameplay to game over, with AI opponents, all 9 stats active, announcer calls, fire mechanic, difficulty selection. All placeholder art. ✓
 
-## v0.6.0 — Game Flow Polish
+## v0.6.0 — T-Unit Asset Extractor
 
-Close the gaps in the gameplay loop. Fire, game flow, and the state machine already work (v0.2.0/v0.4.0). This version fills in the missing mechanics and dead-ball handling.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | Inbound after scoring — reset ball to baseline, give to player | Done | STATE_INBOUND with 90-frame (1.5s) pause. Ball reset to receiving team baseline. Shot clock reset on resume |
-| 2 | Rebounding — PS_REBOUND state, Rebounding stat contest | Done | collision_check_rebound: players within 8.0 of rim contest. Score = stat*10 + random(50). Winner gets ball + 20f committed state |
-| 3 | Clutch stat activation — boost stats in final 30 seconds | Done | Shooting, Stealing, Blocking, Speed boosted by Clutch/2 (capped at 10). Applied once per quarter |
-| 4 | Pushing fouls — excessive contact triggers foul | Done | Per-pair push counter, 4 pushes in 90f window = foul. STATE_FOUL (2s). Momentum-based pusher detection |
-| 5 | Auto-switch on turnover — auto-switch to nearest teammate | Done | Possession change detection in main loop. Switches human to nearest teammate on their team relative to ball |
-| 6 | Dead ball recovery — handle BALL_DEAD state | Done | BALL_DEAD detected in game_update_playing, triggers game_start_inbound. No more stuck dead balls |
-
-**Lines**: 5109 source + 1362 test = 6471 total across 14 modules.
-**Tests**: 97 assertions (21 new: inbound, rebound, clutch, fouls, auto-switch, PS_REBOUND).
-
-**Exit criteria**: Uninterrupted game from tip-off to final buzzer. No dead states. All 9 stats actively affect gameplay. ✓
-
-## v0.7.0 — Menus, Roster, and Audio
-
-Team select, attract mode, announcer.
+Build tooling to decode Williams arcade hardware sprite format.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | roster.cyr — team/player database with stats from HEY.DOC | Done | 337 lines. 8 teams, 16 players, full 9-stat profiles. Team names, jersey colors, stat totals |
-| 2 | menu.cyr — team select screen with cursor navigation | Done | 337 lines. Title screen, team select with stat panels, two-phase selection, back button |
-| 3 | Attract mode — AI vs AI demo gameplay on title screen | Done | All 4 players AI, 10s idle trigger, any key returns to menu |
-| 4 | audio.cyr — sound effects, announcer text calls (BOOMSHAKALAKA) | Done | 229 lines. Priority-based text announcer. Score/dunk/steal/block/foul/fire calls. Flash effects |
-| 5 | Visual fire effects — sprite palette flash, ball trail during fire mode | Done | 12-frame jersey color cycle, 3-segment ball trail (yellow→orange→red) |
-| 6 | Animation polish — state-based sprite color feedback | Done | SHOOT=white, BLOCK=red, STEAL=yellow flash |
+| 1 | T-Unit IMG format reverse-engineering | Not started | Study DMA transfer format from historicalsource/nba-jam-tournament-edition ASM. Map headers, pixel data layout, palette references |
+| 2 | img-extract tool — decode .IMG files to PNG sprite sheets | Not started | Read IMG/ directory files (COURT.IMG, BALL.IMG, DUNKS.IMG, etc.), output indexed-color PNGs |
+| 3 | Palette extraction from ASM color tables | Not started | Extract flesh tones, uniform colors, trim colors from PAT tables in assembly |
+| 4 | Cross-reference with MAME ROM dumps | Not started | Use MAME debug tools on Chewlix cabinet to dump sprites/palettes as validation |
+| 5 | Sprite sheet catalog — document all extracted assets | Not started | Map every sprite to its game function (player idle, run, shoot, dunk frames, etc.) |
 
-**Lines**: 6183 source + 1536 test = 7719 total across 17 modules.
-**Tests**: 121 assertions (24 new: roster, menu, announcer, visual effects).
+**Exit criteria**: All game sprites extracted as indexed-color PNGs with correct palettes.
 
-**Exit criteria**: Player can select a team, play a full game with announcer calls, and return to menu. ✓
+## v0.7.0 — Real Asset Loading
 
-## v1.0.0 — Complete Game
+Replace placeholder geometry with extracted arcade sprites.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | All game systems complete and hardened | Done | Score state guard, null pointer guards, rebound bug fix, bounds clamping |
-| 2 | Security audit (input handling, asset loading) | Done | Division-by-zero guards in shoot.cyr, roster bounds clamping, menu cursor safety, dunk index validation |
-| 3 | Performance: stable 60fps with all effects | Done | Frame budget tracking, max frame time reporting, frame skip support |
-| 4 | Fuzz: asset loading, save data | Done | No asset loading (placeholder art), no save data. Roster/menu inputs bounds-checked. All computed indices clamped |
-| 5 | Difficulty selection (Easy/Medium/Hard) at menu | Done | Difficulty screen between team select and game start. Visual indicators, wrapping nav, maps to AI difficulty levels |
+| 1 | Sprite atlas loader — load PNG sprite sheets at startup | Not started | Parse indexed-color images, load into framebuffer-compatible format |
+| 2 | Player sprite animation — frame sequences for all states | Not started | Idle, run, shoot, dunk (6 types), steal, block, fall, rebound. Per-direction frames |
+| 3 | Court background — load COURT.IMG extracted background | Not started | Replace procedural court_draw with sprite blit of actual court |
+| 4 | Ball sprite — replace circle with real ball frames | Not started | BALL.IMG, rotation frames, fire ball variant |
+| 5 | HUD sprites — scoreboard, shot clock, turbo meters | Not started | Replace bitmap font with extracted HUD graphics |
+| 6 | Palette system — team-specific palette swaps at runtime | Not started | Same base sprite, different palette per team (matching original PAT system) |
 
-**Lines**: 6347 source + 1660 test = 8007 total across 17 modules.
-**Tests**: 132 assertions (11 new: difficulty, bounds, hardening).
+**Exit criteria**: Game looks like NBA Jam. Same sprites, same court, same feel as the arcade unit.
 
-**Exit criteria**: Complete game from title screen to final buzzer. Hardened, audited, performance-tracked. ✓
+## v0.8.0 — Audio
+
+Sound effects and digitized speech.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | PCM audio output via ALSA | Not started | Same approach as cyrius-doom audio system |
+| 2 | Sound effect triggers — swish, bounce, buzzer, whistle | Not started | Map game events to PCM samples |
+| 3 | Digitized announcer speech — extract from DCS audio data | Not started | "BOOMSHAKALAKA!", "HE'S ON FIRE!", "FROM DOWNTOWN!" |
+| 4 | Crowd noise — ambient background audio | Not started | |
+
+**Exit criteria**: Game sounds like NBA Jam.
+
+## v1.0.0 — Arcade-Authentic Complete Game
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | All real assets loaded and rendering correctly | Not started | Sprites, court, ball, HUD, palettes |
+| 2 | Audio complete — effects + announcer + crowd | Not started | |
+| 3 | Performance: stable 60fps with all real sprites | Not started | Benchmark with full sprite loads |
+| 4 | Play-test on Chewlix cabinet | Not started | Arcade-authentic feel verification on real hardware |
+| 5 | Security audit — asset loading paths, file parsing | Not started | Fuzz .IMG loader, validate all external input |
+
+**Exit criteria**: Indistinguishable from the arcade. Runs on the Chewlix cabinet.
 
 ## Future
 
-- **T-Unit IMG extractor** — decode Williams arcade DMA sprite format from historicalsource/nba-jam-tournament-edition IMG/ directory. Extract court, player, ball, dunk sprites + palettes to PNG sprite sheets. Cross-reference with MAME ROM dump tooling on Chewlix cabinet
-- **Real asset loading** — replace placeholder draw_rect geometry with extracted sprite sheets. Palette-indexed framebuffer already matches T-Unit color model
 - **Multiplayer** — local split-screen or network play
 - **kiran integration** — extract sprite/animation/AI systems into kiran APIs
 - **impetus integration** — extract physics into impetus collision/trajectory APIs
