@@ -1,59 +1,59 @@
-// cyrius-nba-jam — dunk.cyr
-// Dunk detection, type selection, trajectory, and animation.
-//
-// Reference: DUNK.ASM (~2,000 lines TMS34010)
-// Original has elaborate dunk tables mapping approach angle,
-// distance, turbo, and stat to specific dunk animations.
-// We implement the same decision tree with fresh code.
-//
-// Dunk types:
-//   STANDARD     — straight approach, simple slam
-//   REVERSE      — approaching from past the basket, reverse-hand
-//   TOMAHAWK     — turbo + far range = overhead hammer
-//   SPIN         — turbo + lateral approach = 360 spin
-//   DOUBLE_PUMP  — close range + turbo = fake-out pump
-//   ALLEY_OOP    — teammate lob + receiver near rim + timing window
-//
-// Dunk flow:
-//   1. Player presses shoot near rim with ball → dunk check
-//   2. If in dunk range and stat passes: select dunk type
-//   3. Enter committed DUNK state (45 frames)
-//   4. Player leaps toward rim (trajectory)
-//   5. Ball follows player during ascent
-//   6. At apex: ball slams through rim → SCORED
-//   7. Player lands, returns to IDLE
+# cyrius-nba-jam -- dunk.cyr
+# Dunk detection, type selection, trajectory, and animation.
+#
+# Reference: DUNK.ASM (~2,000 lines TMS34010)
+# Original has elaborate dunk tables mapping approach angle,
+# distance, turbo, and stat to specific dunk animations.
+# We implement the same decision tree with fresh code.
+#
+# Dunk types:
+#   STANDARD     -- straight approach, simple slam
+#   REVERSE      -- approaching from past the basket, reverse-hand
+#   TOMAHAWK     -- turbo + far range = overhead hammer
+#   SPIN         -- turbo + lateral approach = 360 spin
+#   DOUBLE_PUMP  -- close range + turbo = fake-out pump
+#   ALLEY_OOP    -- teammate lob + receiver near rim + timing window
+#
+# Dunk flow:
+#   1. Player presses shoot near rim with ball -> dunk check
+#   2. If in dunk range and stat passes: select dunk type
+#   3. Enter committed DUNK state (45 frames)
+#   4. Player leaps toward rim (trajectory)
+#   5. Ball follows player during ascent
+#   6. At apex: ball slams through rim -> SCORED
+#   7. Player lands, returns to IDLE
 
-// --- Dunk constants (fixed-point 16.16) ---
+# --- Dunk constants (fixed-point 16.16) ---
 
-var DUNK_RANGE = 655360;            // 10.0 — max distance to rim for dunk
-var DUNK_CLOSE_RANGE = 327680;      // 5.0 — close range for special dunks
-var DUNK_MIN_STAT = 3;              // minimum Dunking stat to attempt
-var DUNK_SPECIAL_STAT = 6;          // minimum for special dunk types
-var DUNK_LEAP_HEIGHT = 917504;      // 14.0 — peak height of jump
-var DUNK_SLAM_FRAME = 30;           // frame when ball slams through rim (of 45)
-var DUNK_APEX_FRAME = 20;           // frame when player reaches peak height
-var ALLEY_OOP_WINDOW = 30;          // frames teammate must be airborne near rim
-var ALLEY_OOP_CATCH_RADIUS = 524288;  // 8.0 — catch zone for alley-oop
+var DUNK_RANGE = 655360;
+var DUNK_CLOSE_RANGE = 327680;
+var DUNK_MIN_STAT = 3;
+var DUNK_SPECIAL_STAT = 6;
+var DUNK_LEAP_HEIGHT = 917504;
+var DUNK_SLAM_FRAME = 30;
+var DUNK_APEX_FRAME = 20;
+var ALLEY_OOP_WINDOW = 30;
+var ALLEY_OOP_CATCH_RADIUS = 524288;
 
-// --- Dunk state ---
-// Stored per-player during active dunk
+# --- Dunk state ---
+# Stored per-player during active dunk
 
 struct DunkState {
-    dunk_type;          // DunkType enum
-    start_x;            // launch position x
-    start_y;            // launch position y
-    target_rim_x;       // which rim we're dunking on
+    dunk_type;          
+    start_x;            
+    start_y;            
+    target_rim_x;       
     target_rim_y;
-    frame;              // current frame in dunk sequence (counts up)
-    total_frames;       // total dunk duration
-    scored;             // 1 if ball already slammed
+    frame;              
+    total_frames;       
+    scored;             
 }
 
-var _dunk_states[4];    // one per player (pointers)
+var _dunk_states[4];
 var _dunk_init_done = 0;
 
 fn dunk_init() {
-    if (_dunk_init_done == 1) { return; }
+    if (_dunk_init_done == 1) { return 0; }
     var i = 0;
     while (i < 4) {
         store64(&_dunk_states + i * 8, 0);
@@ -67,7 +67,7 @@ fn asr_dunk(v, n) {
     return v >> n;
 }
 
-// --- Dunk detection ---
+# --- Dunk detection ---
 
 fn can_dunk(player, rim_x, rim_y) {
     var pp: *i64 = player;
@@ -75,10 +75,10 @@ fn can_dunk(player, rim_x, rim_y) {
     var py = *(pp + 1);
     var dunking_stat = *(pp + 20);
 
-    // Must have minimum dunking stat
+#     Must have minimum dunking stat
     if (dunking_stat < DUNK_MIN_STAT) { return 0; }
 
-    // Must be in dunk range
+#     Must be in dunk range
     var dx = asr_dunk(rim_x - px, 4);
     var dy = asr_dunk(rim_y - py, 4);
     var d2 = dx * dx + dy * dy;
@@ -87,10 +87,10 @@ fn can_dunk(player, rim_x, rim_y) {
 
     if (d2 > r2) { return 0; }
 
-    // Must have ball
+#     Must have ball
     if (*(pp + 9) != 1) { return 0; }
 
-    // Must not be in committed state
+#     Must not be in committed state
     if (player_is_committed(*(pp + 4)) == 1) {
         if (*(pp + 6) > 0) { return 0; }
     }
@@ -98,8 +98,8 @@ fn can_dunk(player, rim_x, rim_y) {
     return 1;
 }
 
-// --- Dunk type selection ---
-// Based on approach angle, distance, turbo, and stats.
+# --- Dunk type selection ---
+# Based on approach angle, distance, turbo, and stats.
 
 fn select_dunk_type(player, rim_x, rim_y) {
     var pp: *i64 = player;
@@ -118,16 +118,16 @@ fn select_dunk_type(player, rim_x, rim_y) {
     var abs_dy = dy;
     if (abs_dy < 0) { abs_dy = 0 - abs_dy; }
 
-    // Distance check
+#     Distance check
     var close = 0;
     var d2 = asr_dunk(dx, 4) * asr_dunk(dx, 4) + asr_dunk(dy, 4) * asr_dunk(dy, 4);
     var close_r2 = asr_dunk(DUNK_CLOSE_RANGE, 4);
     close_r2 = close_r2 * close_r2;
     if (d2 <= close_r2) { close = 1; }
 
-    // Check if approaching from behind the basket (reverse)
+#     Check if approaching from behind the basket (reverse)
     var approaching_from_behind = 0;
-    // Player is past the rim in X direction and moving backward
+#     Player is past the rim in X direction and moving backward
     if (dx < 0) {
         if (vx > 0) { approaching_from_behind = 1; }
     }
@@ -135,17 +135,17 @@ fn select_dunk_type(player, rim_x, rim_y) {
         if (vx < 0) { approaching_from_behind = 1; }
     }
 
-    // Check lateral approach (spin dunk)
+#     Check lateral approach (spin dunk)
     var lateral = 0;
     if (abs_dy > abs_dx * 2) { lateral = 1; }
 
-    // Select type
+#     Select type
     if (dunking_stat < DUNK_SPECIAL_STAT) {
-        // Low stat: standard dunk only
+#         Low stat: standard dunk only
         return DUNK_STANDARD;
     }
 
-    // Special dunks require turbo or fire
+#     Special dunks require turbo or fire
     var has_turbo = 0;
     if (turbo > 20) { has_turbo = 1; }
     if (on_fire == 1) { has_turbo = 1; }
@@ -169,33 +169,33 @@ fn select_dunk_type(player, rim_x, rim_y) {
     return DUNK_STANDARD;
 }
 
-// --- Dunk initiation ---
+# --- Dunk initiation ---
 
 fn dunk_start(player, player_index, ball, rim_x, rim_y) {
     dunk_init();
 
     var pp: *i64 = player;
 
-    // Select dunk type
+#     Select dunk type
     var dtype = select_dunk_type(player, rim_x, rim_y);
 
-    // Create dunk state
+#     Create dunk state
     var ds = DunkState {
         dtype,
-        *pp,            // start_x
-        *(pp + 1),      // start_y
+        *pp,
+        *(pp + 1),
         rim_x,
         rim_y,
-        0,              // frame
-        DUNK_FRAMES,    // total_frames (45)
-        0               // scored
+        0,
+        DUNK_FRAMES,
+        0
     };
     store64(&_dunk_states + player_index * 8, &ds);
 
-    // Put player in DUNK state
+#     Put player in DUNK state
     player_try_transition(player, PS_DUNK);
 
-    // Drain turbo for dunk
+#     Drain turbo for dunk
     var turbo = *(pp + 11);
     var on_fire = *(pp + 10);
     if (on_fire != 1) {
@@ -205,17 +205,17 @@ fn dunk_start(player, player_index, ball, rim_x, rim_y) {
     }
 }
 
-// --- Dunk update (called every frame during dunk) ---
+# --- Dunk update (called every frame during dunk) ---
 
 fn dunk_update(player, player_index, ball) {
     dunk_init();
 
-    // Guard: valid player index
-    if (player_index < 0) { return; }
-    if (player_index >= 4) { return; }
+#     Guard: valid player index
+    if (player_index < 0) { return 0; }
+    if (player_index >= 4) { return 0; }
 
     var ds_ptr = load64(&_dunk_states + player_index * 8);
-    if (ds_ptr == 0) { return; }
+    if (ds_ptr == 0) { return 0; }
 
     var ds: *i64 = ds_ptr;
     var frame = *(ds + 5);
@@ -231,7 +231,7 @@ fn dunk_update(player, player_index, ball) {
     var rim_x = *(ds + 3);
     var rim_y = *(ds + 4);
 
-    // Interpolate player position from start to rim
+#     Interpolate player position from start to rim
     var t_num = frame;
     var t_den = DUNK_SLAM_FRAME;
     if (t_num > t_den) { t_num = t_den; }
@@ -241,60 +241,60 @@ fn dunk_update(player, player_index, ball) {
     *pp = new_x;
     *(pp + 1) = new_y;
 
-    // Compute jump height (parabolic arc peaking at DUNK_APEX_FRAME)
-    // height = 4 * h * t * (1 - t) where t goes 0→1 over total frames
-    // t = frame / total
+#     Compute jump height (parabolic arc peaking at DUNK_APEX_FRAME)
+#     height = 4 * h * t * (1 - t) where t goes 0->1 over total frames
+#     t = frame / total
     var height = 0;
     if (frame <= total) {
-        var t_frac = (frame << 16) / total;          // 0.0-1.0 in 16.16
+        var t_frac = (frame << 16) / total;
         var one_minus_t = 65536 - t_frac;
-        // height = 4 * DUNK_LEAP_HEIGHT * t * (1-t) / 65536
+#         height = 4 * DUNK_LEAP_HEIGHT * t * (1-t) / 65536
         height = 4 * asr_dunk(DUNK_LEAP_HEIGHT * asr_dunk(t_frac, 8) , 8);
         height = asr_dunk(height * asr_dunk(one_minus_t, 8), 8);
     }
 
-    // Update ball position to follow player + height
+#     Update ball position to follow player + height
     var bp: *i64 = ball;
     if (*(bp + 6) == BALL_HELD) {
-        // Ball follows player during dunk
+#         Ball follows player during dunk
         *bp = new_x;
         *(bp + 1) = new_y;
         *(bp + 2) = height;
     }
 
-    // Slam frame: ball goes through rim
+#     Slam frame: ball goes through rim
     if (frame == DUNK_SLAM_FRAME) {
         if (scored == 0) {
             ball_release_from(ball, player);
             ball_mark_scored(ball);
-            *(ds + 7) = 1;   // scored = 1
+            *(ds + 7) = 1;
         }
     }
 
-    // Dunk complete: clean up
+#     Dunk complete: clean up
     if (frame >= total) {
         store64(&_dunk_states + player_index * 8, 0);
     }
 }
 
-// --- Alley-oop detection ---
-// Check if conditions are right for an alley-oop:
-// 1. Ball is in flight (lob pass)
-// 2. Receiver is near rim
-// 3. Receiver is teammate of passer
-// 4. Timing window open
+# --- Alley-oop detection ---
+# Check if conditions are right for an alley-oop:
+# 1. Ball is in flight (lob pass)
+# 2. Receiver is near rim
+# 3. Receiver is teammate of passer
+# 4. Timing window open
 
 fn can_alley_oop(receiver, ball, rim_x, rim_y) {
     var rp: *i64 = receiver;
     var bp: *i64 = ball;
 
-    // Ball must be in flight
+#     Ball must be in flight
     if (*(bp + 6) != BALL_FLIGHT) { return 0; }
 
-    // Ball must be above catch height (this is a lob)
+#     Ball must be above catch height (this is a lob)
     if (*(bp + 2) < BALL_HOLD_Z) { return 0; }
 
-    // Receiver must be near rim
+#     Receiver must be near rim
     var rx = *rp;
     var ry = *(rp + 1);
     var dx = asr_dunk(rim_x - rx, 4);
@@ -304,7 +304,7 @@ fn can_alley_oop(receiver, ball, rim_x, rim_y) {
     r2 = r2 * r2;
     if (d2 > r2) { return 0; }
 
-    // Ball must be near receiver
+#     Ball must be near receiver
     var bx = *bp;
     var by = *(bp + 1);
     var bdx = asr_dunk(bx - rx, 4);
@@ -314,18 +314,18 @@ fn can_alley_oop(receiver, ball, rim_x, rim_y) {
     catch_r2 = catch_r2 * catch_r2;
     if (bd2 > catch_r2) { return 0; }
 
-    // Receiver must have decent dunking stat
+#     Receiver must have decent dunking stat
     if (*(rp + 20) < DUNK_MIN_STAT) { return 0; }
 
     return 1;
 }
 
 fn alley_oop_start(receiver, receiver_index, ball, rim_x, rim_y) {
-    // Catch the ball and immediately start a dunk
+#     Catch the ball and immediately start a dunk
     ball_give_to(ball, receiver);
     dunk_start(receiver, receiver_index, ball, rim_x, rim_y);
 
-    // Override dunk type to ALLEY_OOP
+#     Override dunk type to ALLEY_OOP
     var ds_ptr = load64(&_dunk_states + receiver_index * 8);
     if (ds_ptr != 0) {
         var ds: *i64 = ds_ptr;
@@ -333,7 +333,7 @@ fn alley_oop_start(receiver, receiver_index, ball, rim_x, rim_y) {
     }
 }
 
-// --- Is player currently dunking? ---
+# --- Is player currently dunking? ---
 
 fn is_dunking(player_index) {
     dunk_init();
@@ -342,7 +342,7 @@ fn is_dunking(player_index) {
     return 0;
 }
 
-// --- Dunk type name (for announcer/HUD, future) ---
+# --- Dunk type name (for announcer/HUD, future) ---
 
 fn dunk_type_name(dtype) {
     if (dtype == DUNK_STANDARD) { return "DUNK!"; }

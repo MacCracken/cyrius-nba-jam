@@ -1,87 +1,89 @@
-// cyrius-nba-jam — types and constants
-// Player stats, game constants, entity types.
-// Stat model from original HEY.DOC (9 attributes, 1-10 scale).
+# cyrius-nba-jam -- types and constants
+# Player stats, game constants, entity types.
+# Stat model from original HEY.DOC (9 attributes, 1-10 scale).
 
-// Player stats (indices into stat array)
+# Player stats (indices into stat array)
 enum Stat {
-    STAT_SPEED = 0,
-    STAT_POWER = 1,
-    STAT_SHOOTING = 2,
-    STAT_DUNKING = 3,
-    STAT_STEALING = 4,
-    STAT_BLOCKING = 5,
-    STAT_PASS = 6,
-    STAT_CLUTCH = 7,
-    STAT_REBOUND = 8,
+    STAT_SPEED = 0;
+    STAT_POWER = 1;
+    STAT_SHOOTING = 2;
+    STAT_DUNKING = 3;
+    STAT_STEALING = 4;
+    STAT_BLOCKING = 5;
+    STAT_PASS = 6;
+    STAT_CLUTCH = 7;
+    STAT_REBOUND = 8;
     STAT_COUNT = 9
 }
 
-// Game state
+# Game state
 enum GameState {
-    STATE_MENU = 0,
-    STATE_SELECT = 1,
-    STATE_TIPOFF = 2,
-    STATE_PLAYING = 3,
-    STATE_HALFTIME = 4,
-    STATE_OVERTIME = 5,
-    STATE_GAMEOVER = 6,
-    STATE_ATTRACT = 7,
-    STATE_INBOUND = 8,
+    STATE_MENU = 0;
+    STATE_SELECT = 1;
+    STATE_TIPOFF = 2;
+    STATE_PLAYING = 3;
+    STATE_HALFTIME = 4;
+    STATE_OVERTIME = 5;
+    STATE_GAMEOVER = 6;
+    STATE_ATTRACT = 7;
+    STATE_INBOUND = 8;
     STATE_FOUL = 9
 }
 
-// Player state machine
+# Player state machine
 enum PlayerState {
-    PS_IDLE = 0,
-    PS_RUN = 1,
-    PS_SHOOT = 2,
-    PS_DUNK = 3,
-    PS_PASS = 4,
-    PS_STEAL = 5,
-    PS_BLOCK = 6,
-    PS_FALL = 7,
+    PS_IDLE = 0;
+    PS_RUN = 1;
+    PS_SHOOT = 2;
+    PS_DUNK = 3;
+    PS_PASS = 4;
+    PS_STEAL = 5;
+    PS_BLOCK = 6;
+    PS_FALL = 7;
     PS_REBOUND = 8
 }
 
-// Dunk types (from DUNK.ASM reference)
+# Dunk types (from DUNK.ASM reference)
 enum DunkType {
-    DUNK_STANDARD = 0,
-    DUNK_REVERSE = 1,
-    DUNK_TOMAHAWK = 2,
-    DUNK_SPIN = 3,
-    DUNK_DOUBLE_PUMP = 4,
+    DUNK_STANDARD = 0;
+    DUNK_REVERSE = 1;
+    DUNK_TOMAHAWK = 2;
+    DUNK_SPIN = 3;
+    DUNK_DOUBLE_PUMP = 4;
     DUNK_ALLEY_OOP = 5
 }
 
-// Teams
+# Teams
 enum Team {
-    TEAM_HOME = 0,
+    TEAM_HOME = 0;
     TEAM_AWAY = 1
 }
 
-// Screen dimensions
+# Screen dimensions
 enum Screen {
-    SCREEN_W = 320,
-    SCREEN_H = 240,
-    FPS_TARGET = 60,
+    SCREEN_W = 320;
+    SCREEN_H = 240;
+    FPS_TARGET = 60;
     FRAME_TIME_US = 16667
 }
 
-// Court geometry (fixed-point 16.16)
+# Court geometry (fixed-point 16.16)
+# COURT_LEFT=25.0 COURT_RIGHT=295.0 COURT_NEAR=225.0 COURT_FAR=50.0
+# RIM_X=160.0 RIM_Y=75.0 BALL_GRAVITY=0.1
 enum Court {
-    COURT_LEFT = 1638400,       // 25.0 in fixed-point
-    COURT_RIGHT = 19333120,     // 295.0
-    COURT_NEAR = 14745600,      // 225.0 (bottom of screen, near baseline)
-    COURT_FAR = 3276800,        // 50.0 (top of screen, far baseline)
-    RIM_X = 10485760,           // 160.0 (center court x)
-    RIM_LEFT_Y = 4915200,       // 75.0 (left basket y)
-    RIM_RIGHT_Y = 4915200,      // 75.0 (right basket y)
-    BALL_GRAVITY = 6554         // 0.1 in fixed-point (per frame)
+    COURT_LEFT = 1638400;
+    COURT_RIGHT = 19333120;
+    COURT_NEAR = 14745600;
+    COURT_FAR = 3276800;
+    RIM_X = 10485760;
+    RIM_LEFT_Y = 4915200;
+    RIM_RIGHT_Y = 4915200;
+    BALL_GRAVITY = 6554
 }
 
-// Fire mechanic
+# Fire mechanic
 enum Fire {
-    FIRE_BASKETS_NEEDED = 3,    // consecutive baskets to activate
-    FIRE_TURBO_INFINITE = 1,
-    FIRE_SHOOT_BONUS = 90       // add to shooting accuracy (out of 100)
+    FIRE_BASKETS_NEEDED = 3;
+    FIRE_TURBO_INFINITE = 1;
+    FIRE_SHOOT_BONUS = 90
 }

@@ -1,55 +1,55 @@
-// cyrius-nba-jam — audio.cyr
-// Text-based announcer call system.
-//
-// Reference: SOUNDS.ASM, SPEECH.ASM (~5,000 lines TMS34010)
-// Original triggers DCS audio board calls for digitized speech.
-// We implement text-based announcer calls rendered on the HUD.
-// PCM audio output is a future enhancement.
-//
-// Announcer calls triggered by game events:
-//   Score: "BOOMSHAKALAKA!", "FROM DOWNTOWN!", "NOTHING BUT NET!"
-//   Dunk: "MONSTER JAM!", "IS IT THE SHOES?!", "THE NAIL IN THE COFFIN!"
-//   Fire: "HE'S HEATING UP!", "HE'S ON FIRE!"
-//   Steal: "STOLEN!", "PICKED HIS POCKET!"
-//   Block: "REJECTED!", "GET THAT OUTTA HERE!"
-//   Shot clock: "SHOT CLOCK VIOLATION"
-//   Game: "OVERTIME!", "AT THE BUZZER!"
-//
-// Each call displays for a set number of frames, then fades.
+# cyrius-nba-jam -- audio.cyr
+# Text-based announcer call system.
+#
+# Reference: SOUNDS.ASM, SPEECH.ASM (~5,000 lines TMS34010)
+# Original triggers DCS audio board calls for digitized speech.
+# We implement text-based announcer calls rendered on the HUD.
+# PCM audio output is a future enhancement.
+#
+# Announcer calls triggered by game events:
+#   Score: "BOOMSHAKALAKA!", "FROM DOWNTOWN!", "NOTHING BUT NET!"
+#   Dunk: "MONSTER JAM!", "IS IT THE SHOES?!", "THE NAIL IN THE COFFIN!"
+#   Fire: "HE'S HEATING UP!", "HE'S ON FIRE!"
+#   Steal: "STOLEN!", "PICKED HIS POCKET!"
+#   Block: "REJECTED!", "GET THAT OUTTA HERE!"
+#   Shot clock: "SHOT CLOCK VIOLATION"
+#   Game: "OVERTIME!", "AT THE BUZZER!"
+#
+# Each call displays for a set number of frames, then fades.
 
-// --- Announcer constants ---
+# --- Announcer constants ---
 
-var ANNOUNCE_DISPLAY_FRAMES = 90;      // 1.5 seconds per call
+var ANNOUNCE_DISPLAY_FRAMES = 90;
 var ANNOUNCE_PRIORITY_LOW = 0;
 var ANNOUNCE_PRIORITY_MEDIUM = 1;
 var ANNOUNCE_PRIORITY_HIGH = 2;
-var ANNOUNCE_PRIORITY_FIRE = 3;        // always overrides
+var ANNOUNCE_PRIORITY_FIRE = 3;
 
-// --- Announcer state ---
+# --- Announcer state ---
 
 struct AnnounceState {
-    text;               // 0: pointer to string
-    frames_remaining;   // 1: countdown
-    priority;           // 2: current priority level
-    color;              // 3: text color (palette index)
+    text;               
+    frames_remaining;   
+    priority;           
+    color;              
 }
 
 var _announce = 0;
 var _announce_init_done = 0;
 
 fn announce_init() {
-    if (_announce_init_done == 1) { return; }
+    if (_announce_init_done == 1) { return 0; }
     var a = AnnounceState {
-        0,      // no text
-        0,      // no timer
-        0,      // no priority
-        63      // white default
+        0,
+        0,
+        0,
+        63
     };
     _announce = &a;
     _announce_init_done = 1;
 }
 
-// --- Trigger an announcer call ---
+# --- Trigger an announcer call ---
 
 fn announce(text, priority, color) {
     announce_init();
@@ -57,10 +57,10 @@ fn announce(text, priority, color) {
     var current_priority = *(ap + 2);
     var remaining = *(ap + 1);
 
-    // Only override if new call has higher or equal priority,
-    // or if current call is expired
+#     Only override if new call has higher or equal priority,
+#     or if current call is expired
     if (remaining > 0) {
-        if (priority < current_priority) { return; }
+        if (priority < current_priority) { return 0; }
     }
 
     *ap = text;
@@ -100,7 +100,7 @@ fn announce_is_active() {
     return 0;
 }
 
-// --- Score announcer calls ---
+# --- Score announcer calls ---
 
 var _score_call_rng = 55555;
 
@@ -112,16 +112,16 @@ fn score_call_rng() {
 }
 
 fn announce_score(is_three, is_dunk, consecutive) {
-    var roll = score_call_rng() - (score_call_rng() / 5) * 5;  // 0-4
+    var roll = score_call_rng() - (score_call_rng() / 5) * 5;
 
-    // Fire calls take priority
+#     Fire calls take priority
     if (consecutive == 2) {
-        announce("HE'S HEATING UP!", ANNOUNCE_PRIORITY_HIGH, 48);   // yellow
-        return;
+        announce("HE'S HEATING UP!", ANNOUNCE_PRIORITY_HIGH, 48);
+        return 0;
     }
     if (consecutive >= 3) {
-        announce("HE'S ON FIRE!", ANNOUNCE_PRIORITY_FIRE, 24);      // red
-        return;
+        announce("HE'S ON FIRE!", ANNOUNCE_PRIORITY_FIRE, 24);
+        return 0;
     }
 
     if (is_dunk == 1) {
@@ -130,17 +130,17 @@ fn announce_score(is_three, is_dunk, consecutive) {
         elif (roll == 2) { announce("IS IT THE SHOES?!", ANNOUNCE_PRIORITY_HIGH, 63); }
         elif (roll == 3) { announce("THE NAIL IN THE COFFIN!", ANNOUNCE_PRIORITY_HIGH, 24); }
         else { announce("SLAM DUNK!", ANNOUNCE_PRIORITY_MEDIUM, 48); }
-        return;
+        return 0;
     }
 
     if (is_three == 1) {
         if (roll == 0) { announce("FROM DOWNTOWN!", ANNOUNCE_PRIORITY_MEDIUM, 48); }
         elif (roll == 1) { announce("FOR THREE!", ANNOUNCE_PRIORITY_MEDIUM, 63); }
         else { announce("NOTHING BUT NET!", ANNOUNCE_PRIORITY_MEDIUM, 63); }
-        return;
+        return 0;
     }
 
-    // Regular basket
+#     Regular basket
     if (roll == 0) { announce("HE SCORES!", ANNOUNCE_PRIORITY_LOW, 63); }
     elif (roll == 1) { announce("COUNT IT!", ANNOUNCE_PRIORITY_LOW, 63); }
     elif (roll == 2) { announce("GOOD!", ANNOUNCE_PRIORITY_LOW, 63); }
@@ -185,42 +185,42 @@ fn announce_game_over() {
     announce("GAME OVER!", ANNOUNCE_PRIORITY_FIRE, 63);
 }
 
-// --- Draw announcer text on screen ---
-// Renders the current call as a centered text bar.
+# --- Draw announcer text on screen ---
+# Renders the current call as a centered text bar.
 
 fn announce_draw() {
-    if (announce_is_active() == 0) { return; }
+    if (announce_is_active() == 0) { return 0; }
 
     var text = announce_get_text();
-    if (text == 0) { return; }
+    if (text == 0) { return 0; }
 
     var color = announce_get_color();
 
-    // Draw centered text bar at mid-screen
+#     Draw centered text bar at mid-screen
     var bar_y = 110;
     var bar_h = 14;
 
-    // Background bar
-    draw_rect(40, bar_y, 240, bar_h, 0);       // black bg
-    draw_rect(42, bar_y + 1, 236, bar_h - 2, 10);   // dark gray inner
+#     Background bar
+    draw_rect(40, bar_y, 240, bar_h, 0);
+    draw_rect(42, bar_y + 1, 236, bar_h - 2, 10);
 
-    // Text as colored bar (proportional to string length)
-    // We'll measure the string to size the display
+#     Text as colored bar (proportional to string length)
+#     We'll measure the string to size the display
     var len = strlen(text);
-    var text_w = len * 4;    // ~4 pixels per char at small scale
+    var text_w = len * 4;
     var text_x = (SCREEN_W - text_w) / 2;
 
-    // Render text bar
+#     Render text bar
     draw_rect(text_x, bar_y + 3, text_w, 8, color);
 
-    // Flash effect for high-priority calls
+#     Flash effect for high-priority calls
     announce_init();
     var ap: *i64 = _announce;
     var prio = *(ap + 2);
     var remaining = *(ap + 1);
 
     if (prio >= ANNOUNCE_PRIORITY_HIGH) {
-        // Flash the border
+#         Flash the border
         if ((remaining / 5) - ((remaining / 5) / 2) * 2 == 0) {
             draw_hline(40, 280, bar_y, 48);
             draw_hline(40, 280, bar_y + bar_h - 1, 48);

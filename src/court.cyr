@@ -1,31 +1,31 @@
-// cyrius-nba-jam — court.cyr
-// Court rendering with perspective projection.
-//
-// The court is a 2D surface viewed at an angle — far baseline at
-// screen top (small), near baseline at screen bottom (large).
-// Perspective is faked: Y position maps to a scale factor.
-//
-// Court layout (game coordinates, fixed-point 16.16):
-//   Left:  25.0  (COURT_LEFT)
-//   Right: 295.0 (COURT_RIGHT)
-//   Far:   50.0  (COURT_FAR, top of screen)
-//   Near:  225.0 (COURT_NEAR, bottom of screen)
-//   Center X: 160.0
-//   Rim Y: 75.0 (both baskets in single-court mode)
-//
-// Reference: NBA Jam uses a fixed-perspective 2D court with
-// player sprites scaled by depth position.
+# cyrius-nba-jam -- court.cyr
+# Court rendering with perspective projection.
+#
+# The court is a 2D surface viewed at an angle -- far baseline at
+# screen top (small), near baseline at screen bottom (large).
+# Perspective is faked: Y position maps to a scale factor.
+#
+# Court layout (game coordinates, fixed-point 16.16):
+#   Left:  25.0  (COURT_LEFT)
+#   Right: 295.0 (COURT_RIGHT)
+#   Far:   50.0  (COURT_FAR, top of screen)
+#   Near:  225.0 (COURT_NEAR, bottom of screen)
+#   Center X: 160.0
+#   Rim Y: 75.0 (both baskets in single-court mode)
+#
+# Reference: NBA Jam uses a fixed-perspective 2D court with
+# player sprites scaled by depth position.
 
-// --- Perspective mapping ---
+# --- Perspective mapping ---
 
-// Convert game Y (fixed-point) to screen Y (integer pixels)
-// game_y ranges from COURT_FAR (50.0) to COURT_NEAR (225.0)
-// screen_y ranges from ~40 (top court area) to ~210 (bottom court area)
+# Convert game Y (fixed-point) to screen Y (integer pixels)
+# game_y ranges from COURT_FAR (50.0) to COURT_NEAR (225.0)
+# screen_y ranges from ~40 (top court area) to ~210 (bottom court area)
 
-var COURT_SCREEN_TOP = 40;      // screen Y for far baseline
-var COURT_SCREEN_BOTTOM = 210;  // screen Y for near baseline
-var COURT_SCREEN_LEFT = 10;     // screen X for left sideline (near)
-var COURT_SCREEN_RIGHT = 310;   // screen X for right sideline (near)
+var COURT_SCREEN_TOP = 40;
+var COURT_SCREEN_BOTTOM = 210;
+var COURT_SCREEN_LEFT = 10;
+var COURT_SCREEN_RIGHT = 310;
 
 fn asr(v, n) {
     if (v < 0) { return 0 - ((0 - v) >> n); }
@@ -33,16 +33,16 @@ fn asr(v, n) {
 }
 
 fn court_game_to_screen_y(game_y) {
-    // Linear map from game Y range to screen Y range
-    // t = (game_y - COURT_FAR) / (COURT_NEAR - COURT_FAR)
-    // screen_y = COURT_SCREEN_TOP + t * (COURT_SCREEN_BOTTOM - COURT_SCREEN_TOP)
-    var range_game = COURT_NEAR - COURT_FAR;    // 175.0 in fixed-point
-    var range_screen = COURT_SCREEN_BOTTOM - COURT_SCREEN_TOP;  // 170 pixels
+#     Linear map from game Y range to screen Y range
+#     t = (game_y - COURT_FAR) / (COURT_NEAR - COURT_FAR)
+#     screen_y = COURT_SCREEN_TOP + t * (COURT_SCREEN_BOTTOM - COURT_SCREEN_TOP)
+    var range_game = COURT_NEAR - COURT_FAR;
+    var range_screen = COURT_SCREEN_BOTTOM - COURT_SCREEN_TOP;
 
     var dy = game_y - COURT_FAR;
-    // t = dy / range_game (both fixed-point, result is 0.0-1.0 fixed-point)
-    // screen_y = top + (dy * range_screen) / range_game
-    // Use pre-shifted to avoid overflow
+#     t = dy / range_game (both fixed-point, result is 0.0-1.0 fixed-point)
+#     screen_y = top + (dy * range_screen) / range_game
+#     Use pre-shifted to avoid overflow
     var num = asr(dy, 8) * range_screen;
     var denom = asr(range_game, 8);
     if (denom == 0) { return COURT_SCREEN_TOP; }
@@ -50,27 +50,27 @@ fn court_game_to_screen_y(game_y) {
 }
 
 fn court_game_to_screen_x(game_x, game_y) {
-    // X position with perspective narrowing at far end
-    // At near baseline: full court width (10-310 px)
-    // At far baseline: narrowed (60-260 px)
+#     X position with perspective narrowing at far end
+#     At near baseline: full court width (10-310 px)
+#     At far baseline: narrowed (60-260 px)
 
     var far_left = 60;
     var far_right = 260;
     var near_left = COURT_SCREEN_LEFT;
     var near_right = COURT_SCREEN_RIGHT;
 
-    // t = depth ratio (0.0 = far, 1.0 = near)
+#     t = depth ratio (0.0 = far, 1.0 = near)
     var range_game = COURT_NEAR - COURT_FAR;
     var dy = game_y - COURT_FAR;
     var t_num = asr(dy, 8);
     var t_den = asr(range_game, 8);
     if (t_den == 0) { t_den = 1; }
 
-    // Interpolate left and right screen bounds
+#     Interpolate left and right screen bounds
     var screen_left = far_left + (near_left - far_left) * t_num / t_den;
     var screen_right = far_right + (near_right - far_right) * t_num / t_den;
 
-    // Map game_x within court bounds to screen bounds
+#     Map game_x within court bounds to screen bounds
     var game_range = COURT_RIGHT - COURT_LEFT;
     var gx = game_x - COURT_LEFT;
     var sx_num = asr(gx, 8) * (screen_right - screen_left);
@@ -79,27 +79,27 @@ fn court_game_to_screen_x(game_x, game_y) {
     return screen_left + sx_num / sx_den;
 }
 
-// Perspective scale factor for sprites (0.5x at far end, 1.0x at near end)
-// Returns 16.16 fixed-point scale
+# Perspective scale factor for sprites (0.5x at far end, 1.0x at near end)
+# Returns 16.16 fixed-point scale
 fn court_scale_at_y(game_y) {
     var range_game = COURT_NEAR - COURT_FAR;
     var dy = game_y - COURT_FAR;
     var t_num = asr(dy, 8);
     var t_den = asr(range_game, 8);
-    if (t_den == 0) { return 65536; }  // 1.0
+    if (t_den == 0) { return 65536; }
 
-    // scale = 0.5 + 0.5 * t = 32768 + 32768 * t
-    var t_frac = (t_num << 16) / t_den;    // 0.0-1.0 in 16.16
-    return 32768 + asr(t_frac, 1);          // 0.5 + t/2
+#     scale = 0.5 + 0.5 * t = 32768 + 32768 * t
+    var t_frac = (t_num << 16) / t_den;
+    return 32768 + asr(t_frac, 1);
 }
 
-// --- Court drawing ---
+# --- Court drawing ---
 
 fn court_draw() {
-    // Fill court area with wood color
+#     Fill court area with wood color
     court_draw_floor();
 
-    // Court lines
+#     Court lines
     court_draw_sidelines();
     court_draw_baselines();
     court_draw_center_line();
@@ -109,16 +109,16 @@ fn court_draw() {
     court_draw_three_point_left();
     court_draw_three_point_right();
 
-    // Backboard and rim
+#     Backboard and rim
     court_draw_rim_left();
     court_draw_rim_right();
 }
 
 fn court_draw_floor() {
-    // Fill court area with alternating wood planks
+#     Fill court area with alternating wood planks
     var y = COURT_SCREEN_TOP;
     while (y <= COURT_SCREEN_BOTTOM) {
-        // Perspective: narrow at top, wide at bottom
+#         Perspective: narrow at top, wide at bottom
         var t = y - COURT_SCREEN_TOP;
         var range = COURT_SCREEN_BOTTOM - COURT_SCREEN_TOP;
         if (range == 0) { range = 1; }
@@ -126,14 +126,14 @@ fn court_draw_floor() {
         var left = 60 - (60 - COURT_SCREEN_LEFT) * t / range;
         var right = 260 + (COURT_SCREEN_RIGHT - 260) * t / range;
 
-        // Alternating wood colors for plank effect
-        var color = 2;          // mid wood
+#         Alternating wood colors for plank effect
+        var color = 2;
         if ((y / 6) & 1) {
-            color = 3;          // darker wood
+            color = 3;
         }
-        // Add slight variation
+#         Add slight variation
         if ((y / 12) & 1) {
-            if (color == 2) { color = 1; }  // lighter
+            if (color == 2) { color = 1; }
         }
 
         draw_hline(left, right, y, color);
@@ -142,18 +142,18 @@ fn court_draw_floor() {
 }
 
 fn court_draw_sidelines() {
-    // Left sideline (perspective: narrower at top)
+#     Left sideline (perspective: narrower at top)
     var y = COURT_SCREEN_TOP;
     while (y <= COURT_SCREEN_BOTTOM) {
         var t = y - COURT_SCREEN_TOP;
         var range = COURT_SCREEN_BOTTOM - COURT_SCREEN_TOP;
         if (range == 0) { range = 1; }
         var x = 60 - (60 - COURT_SCREEN_LEFT) * t / range;
-        fb_set(x, y, 8);       // white line
+        fb_set(x, y, 8);
         y = y + 1;
     }
 
-    // Right sideline
+#     Right sideline
     y = COURT_SCREEN_TOP;
     while (y <= COURT_SCREEN_BOTTOM) {
         var t = y - COURT_SCREEN_TOP;
@@ -166,17 +166,17 @@ fn court_draw_sidelines() {
 }
 
 fn court_draw_baselines() {
-    // Far baseline (top)
+#     Far baseline (top)
     draw_hline(60, 260, COURT_SCREEN_TOP, 8);
-    // Near baseline (bottom)
+#     Near baseline (bottom)
     draw_hline(COURT_SCREEN_LEFT, COURT_SCREEN_RIGHT, COURT_SCREEN_BOTTOM, 8);
 }
 
 fn court_draw_center_line() {
-    // Horizontal line at center court
+#     Horizontal line at center court
     var cy = (COURT_SCREEN_TOP + COURT_SCREEN_BOTTOM) / 2;
 
-    // Find sideline X at center Y
+#     Find sideline X at center Y
     var t = cy - COURT_SCREEN_TOP;
     var range = COURT_SCREEN_BOTTOM - COURT_SCREEN_TOP;
     if (range == 0) { range = 1; }
@@ -187,27 +187,27 @@ fn court_draw_center_line() {
 }
 
 fn court_draw_center_circle() {
-    // Circle at center court
+#     Circle at center court
     var cx = 160;
     var cy = (COURT_SCREEN_TOP + COURT_SCREEN_BOTTOM) / 2;
-    var rx = 20;    // horizontal radius
-    var ry = 8;     // vertical radius (perspective squash)
+    var rx = 20;
+    var ry = 8;
 
-    // Draw circle using midpoint algorithm (simplified: outline only)
+#     Draw circle using midpoint algorithm (simplified: outline only)
     var angle = 0;
     while (angle < 64) {
-        // Approximate circle with 64 points
-        // Using sin/cos approximation: iterate in octants
+#         Approximate circle with 64 points
+#         Using sin/cos approximation: iterate in octants
         var dx = rx * angle / 64;
         var dy_sq = ry * ry - (ry * ry * dx * dx) / (rx * rx);
 
-        // Simple approach: step X, compute Y
+#         Simple approach: step X, compute Y
         var x = cx - rx + dx * 2;
         if (dy_sq > 0) {
-            // Approximate sqrt
+#             Approximate sqrt
             var dy = 1;
             while (dy * dy < dy_sq) { dy = dy + 1; }
-            fb_set(x, cy - dy, 10);  // blue circle
+            fb_set(x, cy - dy, 10);
             fb_set(x, cy + dy, 10);
         }
         angle = angle + 1;
@@ -215,12 +215,12 @@ fn court_draw_center_circle() {
 }
 
 fn court_draw_paint_left() {
-    // Left paint area (key/lane) near left basket
-    // In perspective: narrower at top (far), wider at bottom (near)
+#     Left paint area (key/lane) near left basket
+#     In perspective: narrower at top (far), wider at bottom (near)
     var paint_top = COURT_SCREEN_TOP + 5;
     var paint_bottom = COURT_SCREEN_TOP + 50;
 
-    // Paint is centered at ~55px from left sideline in game coords
+#     Paint is centered at ~55px from left sideline in game coords
     var y = paint_top;
     while (y <= paint_bottom) {
         var t = y - COURT_SCREEN_TOP;
@@ -228,17 +228,17 @@ fn court_draw_paint_left() {
         if (range == 0) { range = 1; }
         var left_line = 60 - (60 - COURT_SCREEN_LEFT) * t / range;
 
-        // Paint extends ~30px from baseline
+#         Paint extends ~30px from baseline
         var paint_left = left_line;
         var paint_right = left_line + 25 + 5 * t / range;
 
-        // Top and bottom lines of paint
+#         Top and bottom lines of paint
         if (y == paint_top) {
-            draw_hline(paint_left, paint_right, y, 9);  // red
+            draw_hline(paint_left, paint_right, y, 9);
         } elif (y == paint_bottom) {
             draw_hline(paint_left, paint_right, y, 9);
         } else {
-            // Side line only
+#             Side line only
             fb_set(paint_right, y, 9);
         }
         y = y + 1;
@@ -246,7 +246,7 @@ fn court_draw_paint_left() {
 }
 
 fn court_draw_paint_right() {
-    // Right paint area (mirror of left)
+#     Right paint area (mirror of left)
     var paint_top = COURT_SCREEN_TOP + 5;
     var paint_bottom = COURT_SCREEN_TOP + 50;
 
@@ -272,14 +272,14 @@ fn court_draw_paint_right() {
 }
 
 fn court_draw_three_point_left() {
-    // Three-point arc on left side
-    // Simplified: straight lines near sideline, arc at top
-    var arc_cx = 60 + 10;       // center of arc X
-    var arc_cy = COURT_SCREEN_TOP + 15;  // center Y
+#     Three-point arc on left side
+#     Simplified: straight lines near sideline, arc at top
+    var arc_cx = 60 + 10;
+    var arc_cy = COURT_SCREEN_TOP + 15;
     var rx = 35;
     var ry = 15;
 
-    // Draw arc (right half only — left side is behind baseline)
+#     Draw arc (right half only -- left side is behind baseline)
     var x = 0;
     while (x <= rx) {
         var dy_sq = ry * ry - (ry * ry * x * x) / (rx * rx);
@@ -293,7 +293,7 @@ fn court_draw_three_point_left() {
 }
 
 fn court_draw_three_point_right() {
-    // Mirror of left three-point arc
+#     Mirror of left three-point arc
     var arc_cx = 260 - 10;
     var arc_cy = COURT_SCREEN_TOP + 15;
     var rx = 35;
@@ -312,26 +312,26 @@ fn court_draw_three_point_right() {
 }
 
 fn court_draw_rim_left() {
-    // Left basket: backboard + rim
+#     Left basket: backboard + rim
     var rim_screen_y = COURT_SCREEN_TOP + 10;
 
-    // Find sideline X at rim Y
+#     Find sideline X at rim Y
     var t = rim_screen_y - COURT_SCREEN_TOP;
     var range = COURT_SCREEN_BOTTOM - COURT_SCREEN_TOP;
     if (range == 0) { range = 1; }
     var left_x = 60 - (60 - COURT_SCREEN_LEFT) * t / range;
 
-    // Backboard (vertical bar)
+#     Backboard (vertical bar)
     draw_vline(left_x + 5, rim_screen_y - 3, rim_screen_y + 3, 13);
     draw_vline(left_x + 6, rim_screen_y - 3, rim_screen_y + 3, 13);
 
-    // Rim (small horizontal line extending from backboard)
+#     Rim (small horizontal line extending from backboard)
     draw_hline(left_x + 7, left_x + 12, rim_screen_y, 12);
     draw_hline(left_x + 7, left_x + 12, rim_screen_y + 1, 12);
 }
 
 fn court_draw_rim_right() {
-    // Right basket (mirror)
+#     Right basket (mirror)
     var rim_screen_y = COURT_SCREEN_TOP + 10;
 
     var t = rim_screen_y - COURT_SCREEN_TOP;
@@ -339,11 +339,11 @@ fn court_draw_rim_right() {
     if (range == 0) { range = 1; }
     var right_x = 260 + (COURT_SCREEN_RIGHT - 260) * t / range;
 
-    // Backboard
+#     Backboard
     draw_vline(right_x - 5, rim_screen_y - 3, rim_screen_y + 3, 13);
     draw_vline(right_x - 6, rim_screen_y - 3, rim_screen_y + 3, 13);
 
-    // Rim
+#     Rim
     draw_hline(right_x - 12, right_x - 7, rim_screen_y, 12);
     draw_hline(right_x - 12, right_x - 7, rim_screen_y + 1, 12);
 }

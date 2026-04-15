@@ -1,23 +1,23 @@
-// cyrius-nba-jam — sprite.cyr
-// Sprite atlas management, blitting with transparency and clipping,
-// scaled blit with fixed-point stepping for perspective.
-//
-// NBA Jam uses pre-composed sprite sheets with digitized player photos.
-// This module handles the rendering primitive — the atlas/asset loading
-// is separate (asset.cyr, future).
-//
-// Color key: palette index 0 = transparent.
+# cyrius-nba-jam -- sprite.cyr
+# Sprite atlas management, blitting with transparency and clipping,
+# scaled blit with fixed-point stepping for perspective.
+#
+# NBA Jam uses pre-composed sprite sheets with digitized player photos.
+# This module handles the rendering primitive -- the atlas/asset loading
+# is separate (asset.cyr, future).
+#
+# Color key: palette index 0 = transparent.
 
-// --- Sprite region ---
-// A region within a sprite atlas: pointer to pixel data + dimensions.
+# --- Sprite region ---
+# A region within a sprite atlas: pointer to pixel data + dimensions.
 
 struct Sprite {
-    data;       // pointer to pixel bytes (palette indices)
+    data;       
     width;
     height;
 }
 
-// --- Blit (1:1, with transparency and screen clipping) ---
+# --- Blit (1:1, with transparency and screen clipping) ---
 
 fn sprite_blit(spr, dst_x, dst_y) {
     var p: *i64 = spr;
@@ -25,7 +25,7 @@ fn sprite_blit(spr, dst_x, dst_y) {
     var sw = *(p + 1);
     var sh = *(p + 2);
 
-    // Compute source and destination bounds after clipping
+#     Compute source and destination bounds after clipping
     var src_x0 = 0;
     var src_y0 = 0;
     var dst_x0 = dst_x;
@@ -33,32 +33,32 @@ fn sprite_blit(spr, dst_x, dst_y) {
     var draw_w = sw;
     var draw_h = sh;
 
-    // Clip left
+#     Clip left
     if (dst_x0 < 0) {
         src_x0 = 0 - dst_x0;
         draw_w = draw_w - src_x0;
         dst_x0 = 0;
     }
-    // Clip top
+#     Clip top
     if (dst_y0 < 0) {
         src_y0 = 0 - dst_y0;
         draw_h = draw_h - src_y0;
         dst_y0 = 0;
     }
-    // Clip right
+#     Clip right
     if (dst_x0 + draw_w > SCREEN_W) {
         draw_w = SCREEN_W - dst_x0;
     }
-    // Clip bottom
+#     Clip bottom
     if (dst_y0 + draw_h > SCREEN_H) {
         draw_h = SCREEN_H - dst_y0;
     }
 
-    // Nothing to draw
-    if (draw_w <= 0) { return; }
-    if (draw_h <= 0) { return; }
+#     Nothing to draw
+    if (draw_w <= 0) { return 0; }
+    if (draw_h <= 0) { return 0; }
 
-    // Blit row by row
+#     Blit row by row
     var fb = fb_ptr();
     var row = 0;
     while (row < draw_h) {
@@ -76,8 +76,8 @@ fn sprite_blit(spr, dst_x, dst_y) {
     }
 }
 
-// --- Scaled blit (with fixed-point source stepping) ---
-// Used for perspective: players farther from camera are smaller.
+# --- Scaled blit (with fixed-point source stepping) ---
+# Used for perspective: players farther from camera are smaller.
 
 fn sprite_blit_scaled(spr, dst_x, dst_y, dst_w, dst_h) {
     var p: *i64 = spr;
@@ -85,10 +85,10 @@ fn sprite_blit_scaled(spr, dst_x, dst_y, dst_w, dst_h) {
     var sw = *(p + 1);
     var sh = *(p + 2);
 
-    if (dst_w <= 0) { return; }
-    if (dst_h <= 0) { return; }
+    if (dst_w <= 0) { return 0; }
+    if (dst_h <= 0) { return 0; }
 
-    // Fixed-point step through source pixels (16.16)
+#     Fixed-point step through source pixels (16.16)
     var step_x = (sw << 16) / dst_w;
     var step_y = (sh << 16) / dst_h;
 
@@ -122,19 +122,19 @@ fn sprite_blit_scaled(spr, dst_x, dst_y, dst_w, dst_h) {
     }
 }
 
-// --- Placeholder sprite generation ---
-// Until real assets are loaded, generate simple colored shapes.
+# --- Placeholder sprite generation ---
+# Until real assets are loaded, generate simple colored shapes.
 
 fn sprite_make_player(buf, w, h, jersey_color, skin_color) {
-    // Simple player shape: rectangular body + head
-    // buf must be pre-allocated: w * h bytes
+#     Simple player shape: rectangular body + head
+#     buf must be pre-allocated: w * h bytes
     var total = w * h;
     memset(buf, 0, total);
 
     var head_h = h / 4;
     var body_h = h - head_h;
 
-    // Head (centered, narrower)
+#     Head (centered, narrower)
     var head_w = w / 2;
     var head_x = (w - head_w) / 2;
     var row = 0;
@@ -147,7 +147,7 @@ fn sprite_make_player(buf, w, h, jersey_color, skin_color) {
         row = row + 1;
     }
 
-    // Body (full width)
+#     Body (full width)
     while (row < h) {
         var col = 0;
         while (col < w) {
@@ -159,13 +159,13 @@ fn sprite_make_player(buf, w, h, jersey_color, skin_color) {
 }
 
 fn sprite_make_ball(buf, w, h) {
-    // Simple circle-ish ball shape
+#     Simple circle-ish ball shape
     var total = w * h;
     memset(buf, 0, total);
 
     var cx = w / 2;
     var cy = h / 2;
-    var r_sq = (cx * cy);  // approximate radius squared
+    var r_sq = (cx * cy);
 
     var row = 0;
     while (row < h) {
@@ -174,18 +174,18 @@ fn sprite_make_ball(buf, w, h) {
             var dx = col - cx;
             var dy = row - cy;
             if (dx * dx + dy * dy <= r_sq) {
-                // Ball body
+#                 Ball body
                 if (dx + dy > 0) {
-                    store8(buf + row * w + col, 33);   // shadow side
+                    store8(buf + row * w + col, 33);
                 } else {
-                    store8(buf + row * w + col, 32);   // lit side
+                    store8(buf + row * w + col, 32);
                 }
-                // Seam lines
+#                 Seam lines
                 if (dx == 0) {
-                    store8(buf + row * w + col, 35);   // seam
+                    store8(buf + row * w + col, 35);
                 }
                 if (dy == 0) {
-                    store8(buf + row * w + col, 35);   // seam
+                    store8(buf + row * w + col, 35);
                 }
             }
             col = col + 1;
@@ -194,11 +194,11 @@ fn sprite_make_ball(buf, w, h) {
     }
 }
 
-// --- Shadow ---
+# --- Shadow ---
 
 fn sprite_draw_shadow(x, y, w) {
-    // Elliptical shadow under a player/ball
-    // Simple: draw a dark horizontal oval
+#     Elliptical shadow under a player/ball
+#     Simple: draw a dark horizontal oval
     var h = w / 4;
     if (h < 1) { h = 1; }
 
@@ -211,11 +211,11 @@ fn sprite_draw_shadow(x, y, w) {
     while (row <= cy + ry) {
         if (row >= 0) {
             if (row < SCREEN_H) {
-                // Calculate horizontal extent at this row
+#                 Calculate horizontal extent at this row
                 var dy = row - cy;
-                // Ellipse: (col-cx)^2/rx^2 + (dy)^2/ry^2 <= 1
-                // col-cx <= rx * sqrt(1 - dy^2/ry^2)
-                // Approximate: half_w = rx * (ry - |dy|) / ry
+#                 Ellipse: (col-cx)^2/rx^2 + (dy)^2/ry^2 <= 1
+#                 col-cx <= rx * sqrt(1 - dy^2/ry^2)
+#                 Approximate: half_w = rx * (ry - |dy|) / ry
                 var abs_dy = dy;
                 if (abs_dy < 0) { abs_dy = 0 - abs_dy; }
                 var half_w = rx * (ry - abs_dy) / ry;
@@ -224,7 +224,7 @@ fn sprite_draw_shadow(x, y, w) {
                     var right = cx + half_w;
                     if (left < 0) { left = 0; }
                     if (right >= SCREEN_W) { right = SCREEN_W - 1; }
-                    draw_hline(left, right, row, 56);  // shadow color
+                    draw_hline(left, right, row, 56);
                 }
             }
         }

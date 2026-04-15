@@ -1,11 +1,11 @@
-// cyrius-nba-jam — NBA Jam reimplementation
-// 2-on-2 arcade basketball. Software-rendered framebuffer. Zero deps.
-//
-// Reference: historicalsource/nba-jam (TMS34010 assembly)
-// All code is new Cyrius — the original is design reference only.
-//
-// v1.0.0: Complete NBA Jam reimplementation in Cyrius.
-// Title screen → team select → difficulty → gameplay → game over → menu.
+# cyrius-nba-jam -- NBA Jam reimplementation
+# 2-on-2 arcade basketball. Software-rendered framebuffer. Zero deps.
+#
+# Reference: historicalsource/nba-jam (TMS34010 assembly)
+# All code is new Cyrius -- the original is design reference only.
+#
+# v1.0.0: Complete NBA Jam reimplementation in Cyrius.
+# Title screen -> team select -> difficulty -> gameplay -> game over -> menu.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -30,7 +30,7 @@ include "src/roster.cyr"
 include "src/menu.cyr"
 include "src/audio.cyr"
 
-// --- Game state ---
+# --- Game state ---
 
 var _players[4];
 var _player_count = 4;
@@ -41,19 +41,19 @@ var _ppm_mode = 0;
 
 var _ball = 0;
 var _game = 0;
-var _last_possession = 0;        // track possession changes for auto-switch
-var _game_mode = 0;              // 0=menu, 1=select, 2=playing, 3=attract, 4=difficulty
-var _last_home_score = 0;        // track score changes for announcer
+var _last_possession = 0;
+var _game_mode = 0;
+var _last_home_score = 0;
 var _last_away_score = 0;
 
-// Sprite buffers
+# Sprite buffers
 var _sprite_buf_home1 = 0;
 var _sprite_buf_home2 = 0;
 var _sprite_buf_away1 = 0;
 var _sprite_buf_away2 = 0;
 var _sprite_buf_ball = 0;
 
-// --- Init ---
+# --- Init ---
 
 fn game_init_all() {
     alloc_init();
@@ -61,7 +61,7 @@ fn game_init_all() {
     menu_init();
     announce_init();
 
-    // Allocate sprites
+#     Allocate sprites
     var ps = PLAYER_SPRITE_W * PLAYER_SPRITE_H;
     _sprite_buf_home1 = alloc(ps);
     _sprite_buf_home2 = alloc(ps);
@@ -74,14 +74,14 @@ fn game_init_all() {
     _active_player = 0;
     _frame_count = 0;
     _running = 1;
-    _game_mode = 0;   // start at menu
+    _game_mode = 0;
 
-    // Seed shoot RNG
+#     Seed shoot RNG
     shoot_rng_seed(98765);
 }
 
 fn game_start_match(home_team_id, away_team_id) {
-    // Generate sprites with team colors
+#     Generate sprites with team colors
     var hc1 = roster_jersey_primary(home_team_id);
     var hc2 = roster_jersey_secondary(home_team_id);
     var ac1 = roster_jersey_primary(away_team_id);
@@ -92,7 +92,7 @@ fn game_start_match(home_team_id, away_team_id) {
     sprite_make_player(_sprite_buf_away1, PLAYER_SPRITE_W, PLAYER_SPRITE_H, ac1, ac2);
     sprite_make_player(_sprite_buf_away2, PLAYER_SPRITE_W, PLAYER_SPRITE_H, ac1, ac2);
 
-    // Create players with roster stats
+#     Create players with roster stats
     var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
     var p1p: *i64 = p1;
     *(p1p + 14) = _sprite_buf_home1;
@@ -118,38 +118,38 @@ fn game_start_match(home_team_id, away_team_id) {
     store64(&_players + 16, p3);
     store64(&_players + 24, p4);
 
-    // Create ball, give to home player 1
+#     Create ball, give to home player 1
     _ball = ball_new(6553600, 8519680);
     var ballp: *i64 = _ball;
     *(ballp + 10) = _sprite_buf_ball;
     ball_give_to(_ball, p1);
 
-    // Create game state
+#     Create game state
     _game = game_new();
     _active_player = 0;
     _last_possession = TEAM_HOME;
     _last_home_score = 0;
     _last_away_score = 0;
-    _game_mode = 2;   // playing
+    _game_mode = 2;
 
-    // Initialize AI
+#     Initialize AI
     ai_init();
-    ai_set_active(0, 0);   // human player
-    ai_set_active(1, 1);   // AI teammate
-    ai_set_active(2, 1);   // AI opponent 1
-    ai_set_active(3, 1);   // AI opponent 2
+    ai_set_active(0, 0);
+    ai_set_active(1, 1);
+    ai_set_active(2, 1);
+    ai_set_active(3, 1);
 
     ai_set_difficulty(1, AI_DIFF_MEDIUM);
     ai_set_difficulty(2, AI_DIFF_MEDIUM);
     ai_set_difficulty(3, AI_DIFF_MEDIUM);
 }
 
-// --- Target rim for current possession ---
+# --- Target rim for current possession ---
 
 fn get_target_rim_x(g) {
     var gp: *i64 = g;
     var poss = *(gp + 6);
-    // Home team shoots at right rim, away shoots at left
+#     Home team shoots at right rim, away shoots at left
     if (poss == TEAM_HOME) { return RIM_RIGHT_X; }
     return RIM_LEFT_X;
 }
@@ -158,51 +158,51 @@ fn get_target_rim_y() {
     return RIM_Y;
 }
 
-// --- Update ---
+# --- Update ---
 
 fn game_update_all() {
     var active = load64(&_players + _active_player * 8);
     var ap: *i64 = active;
     var active_team = *(ap + 7);
 
-    // Apply movement input
+#     Apply movement input
     player_apply_input(active, input_dx(), input_dy(), input_turbo());
 
-    // --- Player switching ---
+#     --- Player switching ---
     if (input_switch() == 1) {
-        // Find teammate (same team, different index)
+#         Find teammate (same team, different index)
         var i = 0;
         while (i < _player_count) {
             if (i != _active_player) {
                 var candidate = load64(&_players + i * 8);
                 var cp: *i64 = candidate;
                 if (*(cp + 7) == active_team) {
-                    // Old active becomes AI, new active becomes human
+#                     Old active becomes AI, new active becomes human
                     ai_set_active(_active_player, 1);
                     ai_set_active(i, 0);
                     _active_player = i;
-                    i = _player_count;   // break
+                    i = _player_count;
                 }
             }
             i = i + 1;
         }
     }
 
-    // --- Shoot / Dunk action ---
+#     --- Shoot / Dunk action ---
     if (input_shoot() == 1) {
-        if (*(ap + 9) == 1) {   // has_ball
+        if (*(ap + 9) == 1) {
             var state = *(ap + 4);
             if (state != PS_SHOOT) {
                 if (state != PS_DUNK) {
                     var rim_x = get_target_rim_x(_game);
                     var rim_y = get_target_rim_y();
 
-                    // Auto-detect dunk vs shot based on proximity
+#                     Auto-detect dunk vs shot based on proximity
                     if (can_dunk(active, rim_x, rim_y) == 1) {
-                        // DUNK!
+#                         DUNK!
                         dunk_start(active, _active_player, _ball, rim_x, rim_y);
                     } else {
-                        // Regular shot
+#                         Regular shot
                         player_try_transition(active, PS_SHOOT);
                         shoot_ball(active, _ball, rim_x, rim_y);
                     }
@@ -211,9 +211,9 @@ fn game_update_all() {
         }
     }
 
-    // --- Pass action (with lead pass) ---
+#     --- Pass action (with lead pass) ---
     if (input_pass() == 1) {
-        if (*(ap + 9) == 1) {   // has_ball
+        if (*(ap + 9) == 1) {
             var i = 0;
             while (i < _player_count) {
                 if (i != _active_player) {
@@ -223,16 +223,16 @@ fn game_update_all() {
                         player_try_transition(active, PS_PASS);
                         ball_release_from(_ball, active);
 
-                        // Lead pass: aim where teammate will be
-                        var tx = *tp + *(tp + 2) * 8;    // x + vx * 8 frames ahead
+#                         Lead pass: aim where teammate will be
+                        var tx = *tp + *(tp + 2) * 8;
                         var ty = *(tp + 1) + *(tp + 3) * 8;
 
                         var px = *ap;
                         var py = *(ap + 1);
 
-                        // Pass speed based on Pass stat (higher stat = faster pass)
+#                         Pass speed based on Pass stat (higher stat = faster pass)
                         var pass_stat = *(ap + 23);
-                        var pass_speed = 20 - pass_stat;   // stat 10 = 10 frames, stat 1 = 19
+                        var pass_speed = 20 - pass_stat;
                         if (pass_speed < 8) { pass_speed = 8; }
 
                         var vx = (tx - px) / pass_speed;
@@ -246,26 +246,26 @@ fn game_update_all() {
         }
     }
 
-    // --- Steal/Block action ---
+#     --- Steal/Block action ---
     if (input_steal() == 1) {
-        if (*(ap + 9) != 1) {   // don't have ball — try steal
-            // Find ball handler
+        if (*(ap + 9) != 1) {
+#             Find ball handler
             var i = 0;
             while (i < _player_count) {
                 var target = load64(&_players + i * 8);
                 var tp: *i64 = target;
-                if (*(tp + 9) == 1) {   // has_ball
-                    if (*(tp + 7) != active_team) {   // opponent
+                if (*(tp + 9) == 1) {
+                    if (*(tp + 7) != active_team) {
                         collision_try_steal(active, target, _ball);
                     }
                 }
-                // Also try block if opponent is shooting
+#                 Also try block if opponent is shooting
                 if (*(tp + 4) == PS_SHOOT) {
                     if (*(tp + 7) != active_team) {
-                        // Check goal tending first
+#                         Check goal tending first
                         var gt = is_goal_tending(_ball);
                         if (gt > 0) {
-                            // Goal tending: automatic score for the shooter
+#                             Goal tending: automatic score for the shooter
                             var gp: *i64 = _game;
                             if (*(tp + 7) == TEAM_HOME) {
                                 *(gp + 4) = *(gp + 4) + gt;
@@ -283,7 +283,7 @@ fn game_update_all() {
         }
     }
 
-    // --- AI update for all drone-controlled players ---
+#     --- AI update for all drone-controlled players ---
     var home_rim_x = RIM_RIGHT_X;
     var home_rim_y = RIM_Y;
     var away_rim_x = RIM_LEFT_X;
@@ -291,20 +291,20 @@ fn game_update_all() {
     ai_update_all(&_players, _player_count, _ball, _game,
                    home_rim_x, home_rim_y, away_rim_x, away_rim_y);
 
-    // Update all players
+#     Update all players
     var i = 0;
     while (i < _player_count) {
         var p = load64(&_players + i * 8);
         player_update(p);
 
-        // Update active dunks
+#         Update active dunks
         if (is_dunking(i) == 1) {
             dunk_update(p, i, _ball);
         }
         i = i + 1;
     }
 
-    // Check alley-oop opportunities
+#     Check alley-oop opportunities
     var rim_x = get_target_rim_x(_game);
     var rim_y = get_target_rim_y();
     i = 0;
@@ -312,27 +312,27 @@ fn game_update_all() {
         var p = load64(&_players + i * 8);
         if (can_alley_oop(p, _ball, rim_x, rim_y) == 1) {
             alley_oop_start(p, i, _ball, rim_x, rim_y);
-            i = _player_count;   // break — only one alley-oop per frame
+            i = _player_count;
         }
         i = i + 1;
     }
 
-    // Update ball
+#     Update ball
     ball_update(_ball);
 
-    // Run collisions
+#     Run collisions
     collision_update(_ball, &_players, _player_count);
 
-    // Check pushing fouls
+#     Check pushing fouls
     var foul_team = push_get_foul_team();
     if (foul_team >= 0) {
         game_call_foul(_game, foul_team, _ball, &_players, _player_count);
     }
 
-    // Check rebounds near rim
+#     Check rebounds near rim
     collision_check_rebound(_ball, &_players, _player_count);
 
-    // Check pass interception (ball in flight can be intercepted by opponents)
+#     Check pass interception (ball in flight can be intercepted by opponents)
     var ballp: *i64 = _ball;
     var last_shooter = *(ballp + 9);
     if (last_shooter != 0) {
@@ -341,16 +341,16 @@ fn game_update_all() {
         collision_check_intercept(_ball, &_players, _player_count, passing_team);
     }
 
-    // Update game state (clock, scoring, etc.)
+#     Update game state (clock, scoring, etc.)
     game_update(_game, _ball, &_players, _player_count);
 
-    // Auto-switch on possession change
+#     Auto-switch on possession change
     var gp_check: *i64 = _game;
     var curr_poss = *(gp_check + 6);
     if (curr_poss != _last_possession) {
         _last_possession = curr_poss;
 
-        // If human's team now has possession, switch to nearest teammate
+#         If human's team now has possession, switch to nearest teammate
         var human = load64(&_players + _active_player * 8);
         var human_p: *i64 = human;
         var human_team = *(human_p + 7);
@@ -368,17 +368,17 @@ fn game_update_all() {
     }
 }
 
-// --- Render ---
+# --- Render ---
 
 fn game_render_all() {
     fb_clear(0);
 
-    // Court
+#     Court
     court_draw();
 
-    // Sort entities by Y for painter's algorithm
-    // Collect all drawable entities: 4 players + 1 ball = 5
-    // Simple: draw players sorted by Y, draw ball separately based on Z
+#     Sort entities by Y for painter's algorithm
+#     Collect all drawable entities: 4 players + 1 ball = 5
+#     Simple: draw players sorted by Y, draw ball separately based on Z
     var sorted[4];
     var i = 0;
     while (i < _player_count) {
@@ -386,7 +386,7 @@ fn game_render_all() {
         i = i + 1;
     }
 
-    // Bubble sort by Y
+#     Bubble sort by Y
     i = 0;
     while (i < _player_count - 1) {
         var j = 0;
@@ -404,7 +404,7 @@ fn game_render_all() {
         i = i + 1;
     }
 
-    // Draw players and ball interleaved by Y
+#     Draw players and ball interleaved by Y
     var ball_drawn = 0;
     var ballp: *i64 = _ball;
     var ball_y = *(ballp + 1);
@@ -415,7 +415,7 @@ fn game_render_all() {
         var pp: *i64 = p;
         var py = *(pp + 1);
 
-        // Draw ball before this player if ball is behind them
+#         Draw ball before this player if ball is behind them
         if (ball_drawn == 0) {
             if (ball_y <= py) {
                 ball_draw(_ball);
@@ -427,12 +427,12 @@ fn game_render_all() {
         i = i + 1;
     }
 
-    // Draw ball if not yet drawn (in front of all players)
+#     Draw ball if not yet drawn (in front of all players)
     if (ball_drawn == 0) {
         ball_draw(_ball);
     }
 
-    // Active player indicator
+#     Active player indicator
     var active = load64(&_players + _active_player * 8);
     var act_p: *i64 = active;
     var ax = *act_p;
@@ -445,15 +445,15 @@ fn game_render_all() {
     fb_set(sx - 1, sy - dh - 3, 8);
     fb_set(sx + 1, sy - dh - 3, 8);
 
-    // Fire indicator
+#     Fire indicator
     hud_draw_fire(active);
 
-    // HUD
+#     HUD
     var gp: *i64 = _game;
     hud_draw(
-        *(gp + 4),      // home_score
-        *(gp + 5),      // away_score
-        *(gp + 1),      // quarter
+        *(gp + 4),
+        *(gp + 5),
+        *(gp + 1),
         game_clock_seconds(_game),
         game_shot_clock_seconds(_game),
         &_players,
@@ -461,10 +461,10 @@ fn game_render_all() {
     );
 }
 
-// --- Frame budget tracking ---
+# --- Frame budget tracking ---
 
-var _frame_budget_exceeded = 0;    // count of frames that missed 60fps
-var _max_frame_ns = 0;             // longest frame time seen
+var _frame_budget_exceeded = 0;
+var _max_frame_ns = 0;
 
 fn frame_budget_check(elapsed_ns, target_ns) {
     if (elapsed_ns > target_ns) {
@@ -475,7 +475,7 @@ fn frame_budget_check(elapsed_ns, target_ns) {
     }
 }
 
-// --- Frame timing ---
+# --- Frame timing ---
 
 fn sleep_ns(ns) {
     var ts[2];
@@ -490,35 +490,35 @@ fn get_time_ns() {
     return load64(&ts) * 1000000000 + load64(&ts + 8);
 }
 
-// --- PPM screenshot mode ---
-// Renders multiple screenshots covering the full game flow.
-// Pattern from cyrius-doom and encom-hits: render each state, write PPM, move on.
+# --- PPM screenshot mode ---
+# Renders multiple screenshots covering the full game flow.
+# Pattern from cyrius-doom and encom-hits: render each state, write PPM, move on.
 
 fn ppm_screenshot_mode() {
     println("PPM screenshot mode");
 
-    // 1. Title screen
+#     1. Title screen
     menu_init();
     menu_draw_title();
     render_write_ppm("/tmp/nba-jam_title.ppm");
     println("  wrote /tmp/nba-jam_title.ppm");
 
-    // 2. Team select (home picking)
+#     2. Team select (home picking)
     menu_reset();
     menu_draw_select();
     render_write_ppm("/tmp/nba-jam_select.ppm");
     println("  wrote /tmp/nba-jam_select.ppm");
 
-    // 3. Difficulty screen
+#     3. Difficulty screen
     menu_draw_difficulty();
     render_write_ppm("/tmp/nba-jam_difficulty.ppm");
     println("  wrote /tmp/nba-jam_difficulty.ppm");
 
-    // 4. Gameplay — Chicago vs Seattle, simulate a few frames
+#     4. Gameplay -- Chicago vs Seattle, simulate a few frames
     game_start_match(0, 5);
 
-    // Simulate 60 frames of AI play to get interesting positions
-    ai_set_active(0, 1);   // all AI for screenshot
+#     Simulate 60 frames of AI play to get interesting positions
+    ai_set_active(0, 1);
     var i = 0;
     while (i < 60) {
         var gp_s: *i64 = _game;
@@ -534,31 +534,31 @@ fn ppm_screenshot_mode() {
     render_write_ppm("/tmp/nba-jam_game.ppm");
     println("  wrote /tmp/nba-jam_game.ppm");
 
-    // 5. Gameplay with HUD and announcer
+#     5. Gameplay with HUD and announcer
     announce("BOOMSHAKALAKA!", ANNOUNCE_PRIORITY_HIGH, 48);
     game_render_all();
     announce_draw();
     render_write_ppm("/tmp/nba-jam_action.ppm");
     println("  wrote /tmp/nba-jam_action.ppm");
 
-    // 6. Fire effect — put a player on fire and render
+#     6. Fire effect -- put a player on fire and render
     var fire_p = load64(&_players);
     var fire_pp: *i64 = fire_p;
-    *(fire_pp + 10) = 1;    // on_fire
-    *(fire_pp + 9) = 1;     // has_ball
+    *(fire_pp + 10) = 1;
+    *(fire_pp + 9) = 1;
     announce("HE'S ON FIRE!", ANNOUNCE_PRIORITY_FIRE, 24);
     game_render_all();
     announce_draw();
     render_write_ppm("/tmp/nba-jam_fire.ppm");
     println("  wrote /tmp/nba-jam_fire.ppm");
 
-    // 7. Dunk in progress — position player near rim in dunk state
+#     7. Dunk in progress -- position player near rim in dunk state
     var dunk_p = load64(&_players);
     var dp: *i64 = dunk_p;
-    *dp = RIM_RIGHT_X - 196608;    // near rim
+    *dp = RIM_RIGHT_X - 196608;
     *(dp + 1) = RIM_Y;
     *(dp + 4) = PS_DUNK;
-    *(dp + 6) = 20;                // mid-dunk
+    *(dp + 6) = 20;
     game_render_all();
     announce("MONSTER JAM!", ANNOUNCE_PRIORITY_HIGH, 48);
     announce_draw();
@@ -574,7 +574,7 @@ fn ppm_screenshot_mode() {
     println("7 screenshots written to /tmp/nba-jam_*.ppm");
 }
 
-// --- Main ---
+# --- Main ---
 
 fn main() {
     args_init();
@@ -612,13 +612,13 @@ fn main() {
             println("screenshot: /tmp/nba-jam.ppm");
         }
 
-        // --- Mode dispatch ---
+#         --- Mode dispatch ---
         if (_game_mode == 0) {
-            // MENU — title screen
+#             MENU -- title screen
             menu_draw_title();
             menu_tick_idle();
 
-            // Any key → team select
+#             Any key -> team select
             if (input_shoot() == 1) {
                 menu_reset();
                 _game_mode = 1;
@@ -630,10 +630,10 @@ fn main() {
                 _game_mode = 1;
             }
 
-            // Idle timeout → attract
+#             Idle timeout -> attract
             if (menu_should_attract() == 1) {
-                game_start_match(0, 5);   // default teams
-                // All AI for attract
+                game_start_match(0, 5);
+#                 All AI for attract
                 ai_set_active(0, 1);
                 ai_set_active(1, 1);
                 ai_set_active(2, 1);
@@ -641,50 +641,52 @@ fn main() {
                 _game_mode = 3;
             }
         } elif (_game_mode == 1) {
-            // SELECT — team select screen
+#             SELECT -- team select screen
             menu_draw_select();
 
-            var dy = 0;
-            if (input_dy() < 0) { dy = -1; }
-            elif (input_dy() > 0) { dy = 1; }
+            var menu_dy = 0;
+            if (input_dy() < 0) { menu_dy = -1; }
+            elif (input_dy() > 0) { menu_dy = 1; }
 
             var confirm = input_shoot();
             var back = input_pass();
 
-            var done = menu_update_select(0, dy, confirm, back);
-            if (done == 1) {
-                // Both teams selected — go to difficulty
+            var sel_done = menu_update_select(0, menu_dy, confirm, back);
+            if (sel_done == 1) {
+#                 Both teams selected -- go to difficulty
                 _game_mode = 4;
             }
         } elif (_game_mode == 2) {
-            // PLAYING — actual game
+#             PLAYING -- actual game
             if (game_is_over(_game) == 1) {
                 announce_game_over();
-                _game_mode = 0;   // back to menu
+                _game_mode = 0;
                 menu_reset();
             } else {
                 game_update_all();
 
-                // Announcer: detect score changes
+#                 Announcer: detect score changes
                 var gpa: *i64 = _game;
                 var hs = *(gpa + 4);
                 var as_ = *(gpa + 5);
+                var pts = 0;
+                var is_three = 0;
                 if (hs != _last_home_score) {
-                    var pts = hs - _last_home_score;
-                    var is_three = 0;
+                    pts = hs - _last_home_score;
+                    is_three = 0;
                     if (pts >= 3) { is_three = 1; }
                     announce_score(is_three, 0, *(gpa + 9));
                     _last_home_score = hs;
                 }
                 if (as_ != _last_away_score) {
-                    var pts = as_ - _last_away_score;
-                    var is_three = 0;
+                    pts = as_ - _last_away_score;
+                    is_three = 0;
                     if (pts >= 3) { is_three = 1; }
                     announce_score(is_three, 0, *(gpa + 10));
                     _last_away_score = as_;
                 }
 
-                // Announcer: detect fouls
+#                 Announcer: detect fouls
                 var game_state = *gpa;
                 if (game_state == STATE_FOUL) {
                     announce_foul();
@@ -695,9 +697,9 @@ fn main() {
                 announce_draw();
             }
         } elif (_game_mode == 3) {
-            // ATTRACT — AI vs AI demo
+#             ATTRACT -- AI vs AI demo
             if (input_shoot() == 1) {
-                _game_mode = 0;   // any key returns to menu
+                _game_mode = 0;
                 menu_reset();
             } elif (input_dx() != 0) {
                 _game_mode = 0;
@@ -707,7 +709,7 @@ fn main() {
                 game_render_all();
                 announce_update();
 
-                // "PRESS START" overlay on attract
+#                 "PRESS START" overlay on attract
                 draw_rect(100, 220, 120, 10, 0);
                 var flash = _frame_count / 30;
                 if (flash - (flash / 2) * 2 == 0) {
@@ -720,20 +722,20 @@ fn main() {
                 }
             }
         } elif (_game_mode == 4) {
-            // DIFFICULTY SELECT
+#             DIFFICULTY SELECT
             menu_draw_difficulty();
 
-            var dy = 0;
-            if (input_dy() < 0) { dy = -1; }
-            elif (input_dy() > 0) { dy = 1; }
+            var diff_dy = 0;
+            if (input_dy() < 0) { diff_dy = -1; }
+            elif (input_dy() > 0) { diff_dy = 1; }
 
-            var done = menu_update_difficulty(dy, input_shoot());
-            if (done == 1) {
+            var diff_done = menu_update_difficulty(diff_dy, input_shoot());
+            if (diff_done == 1) {
                 var ht = menu_get_home_team();
                 var at = menu_get_away_team();
                 game_start_match(ht, at);
 
-                // Apply difficulty to AI players
+#                 Apply difficulty to AI players
                 var diff = menu_get_difficulty();
                 ai_set_difficulty(1, diff);
                 ai_set_difficulty(2, diff);
@@ -748,13 +750,13 @@ fn main() {
         if (elapsed < target_ns) {
             sleep_ns(target_ns - elapsed);
         }
-        // Frame skip: if we're behind by more than 2 frames, don't render next frame
-        // (handled naturally — next iteration just runs faster)
+#         Frame skip: if we're behind by more than 2 frames, don't render next frame
+#         (handled naturally -- next iteration just runs faster)
     }
 
     input_restore();
 
-    // Frame budget report
+#     Frame budget report
     if (_frame_budget_exceeded > 0) {
         print("frames over budget: ");
         fmt_int(_frame_budget_exceeded);
@@ -765,11 +767,11 @@ fn main() {
         println("us");
     }
 
-    // Final score (if game was played)
+#     Final score (if game was played)
     if (_game != 0) {
         var gp: *i64 = _game;
         println("");
-        print("FINAL SCORE — HOME: ");
+        print("FINAL SCORE -- HOME: ");
         fmt_int(*(gp + 4));
         print("  AWAY: ");
         fmt_int(*(gp + 5));

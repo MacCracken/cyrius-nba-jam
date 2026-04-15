@@ -1,97 +1,97 @@
-// cyrius-nba-jam — player.cyr
-// Player entity: position, velocity, state machine, stats.
-// Fixed-point 16.16 coordinates in game space.
-//
-// Original: PLYR.ASM (~12,000 lines of TMS34010)
-// We reimplement the design, not the assembly.
-//
-// Player struct layout:
-//   x, y          — game-space position (fixed-point 16.16)
-//   vx, vy        — velocity (fixed-point 16.16)
-//   state         — PlayerState enum
-//   prev_state    — for transition detection
-//   state_timer   — frames remaining in committed state
-//   team          — Team enum (HOME=0, AWAY=1)
-//   index         — player index within team (0 or 1)
-//   has_ball      — 1 if this player holds the ball
-//   on_fire       — 1 if "HE'S ON FIRE"
-//   turbo         — turbo meter (0-100)
-//   consecutive   — consecutive baskets (for fire activation)
-//   stats[9]      — stat array (indexed by Stat enum)
-//   sprite_data   — pointer to placeholder sprite pixel data
-//   sprite_w      — sprite width
-//   sprite_h      — sprite height
+# cyrius-nba-jam -- player.cyr
+# Player entity: position, velocity, state machine, stats.
+# Fixed-point 16.16 coordinates in game space.
+#
+# Original: PLYR.ASM (~12,000 lines of TMS34010)
+# We reimplement the design, not the assembly.
+#
+# Player struct layout:
+#   x, y          -- game-space position (fixed-point 16.16)
+#   vx, vy        -- velocity (fixed-point 16.16)
+#   state         -- PlayerState enum
+#   prev_state    -- for transition detection
+#   state_timer   -- frames remaining in committed state
+#   team          -- Team enum (HOME=0, AWAY=1)
+#   index         -- player index within team (0 or 1)
+#   has_ball      -- 1 if this player holds the ball
+#   on_fire       -- 1 if "HE'S ON FIRE"
+#   turbo         -- turbo meter (0-100)
+#   consecutive   -- consecutive baskets (for fire activation)
+#   stats[9]      -- stat array (indexed by Stat enum)
+#   sprite_data   -- pointer to placeholder sprite pixel data
+#   sprite_w      -- sprite width
+#   sprite_h      -- sprite height
 
-// --- Movement constants (fixed-point 16.16) ---
+# --- Movement constants (fixed-point 16.16) ---
 
-var PLAYER_ACCEL = 3277;           // 0.05 per frame
-var PLAYER_DECEL = 6554;           // 0.1 per frame (friction)
-var PLAYER_MAX_SPEED = 19661;      // 0.3 per frame (base, modified by Speed stat)
-var PLAYER_TURBO_MULT = 26214;     // 0.4 (turbo max speed)
-var TURBO_DRAIN_RUN = 1;           // per frame while turbo running
-var TURBO_DRAIN_SHOOT = 3;        // cost to turbo-shoot
-var TURBO_DRAIN_DUNK = 5;         // cost to turbo-dunk
-var TURBO_RECHARGE = 1;           // per frame while turbo inactive
-var TURBO_RECHARGE_DELAY = 30;    // frames after last use before recharge starts
+var PLAYER_ACCEL = 3277;
+var PLAYER_DECEL = 6554;
+var PLAYER_MAX_SPEED = 19661;
+var PLAYER_TURBO_MULT = 26214;
+var TURBO_DRAIN_RUN = 1;
+var TURBO_DRAIN_SHOOT = 3;
+var TURBO_DRAIN_DUNK = 5;
+var TURBO_RECHARGE = 1;
+var TURBO_RECHARGE_DELAY = 30;
 var TURBO_MAX = 100;
-var _turbo_cooldown = 0;          // frames until recharge resumes
+var _turbo_cooldown = 0;
 
-// Committed state durations (frames at 60fps)
-var SHOOT_FRAMES = 30;     // 0.5s
-var DUNK_FRAMES = 45;      // 0.75s
-var PASS_FRAMES = 15;      // 0.25s
-var STEAL_FRAMES = 12;     // 0.2s
-var BLOCK_FRAMES = 20;     // 0.33s
-var FALL_FRAMES = 30;      // 0.5s
-var REBOUND_FRAMES = 20;   // 0.33s
+# Committed state durations (frames at 60fps)
+var SHOOT_FRAMES = 30;
+var DUNK_FRAMES = 45;
+var PASS_FRAMES = 15;
+var STEAL_FRAMES = 12;
+var BLOCK_FRAMES = 20;
+var FALL_FRAMES = 30;
+var REBOUND_FRAMES = 20;
 
-// Player sprite dimensions (placeholder)
+# Player sprite dimensions (placeholder)
 var PLAYER_SPRITE_W = 16;
 var PLAYER_SPRITE_H = 24;
 
-// --- Player struct ---
-// 23 fields (stats is 9 slots + 3 sprite fields = 23 total before stats,
-// plus 9 stats = 32 i64 values → 256 bytes)
+# --- Player struct ---
+# 23 fields (stats is 9 slots + 3 sprite fields = 23 total before stats,
+# plus 9 stats = 32 i64 values -> 256 bytes)
 
 struct Player {
-    x; y;                   // 0, 1
-    vx; vy;                 // 2, 3
-    state; prev_state;      // 4, 5
-    state_timer;            // 6
-    team; index;            // 7, 8
-    has_ball;               // 9
-    on_fire;                // 10
-    turbo;                  // 11
-    consecutive;            // 12
-    facing;                 // 13: direction 0-7 (8 directions)
-    sprite_data;            // 14
-    sprite_w; sprite_h;     // 15, 16
-    stat_speed;             // 17
-    stat_power;             // 18
-    stat_shooting;          // 19
-    stat_dunking;           // 20
-    stat_stealing;          // 21
-    stat_blocking;          // 22
-    stat_pass;              // 23
-    stat_clutch;            // 24
-    stat_rebound;           // 25
+    x; y;                   
+    vx; vy;                 
+    state; prev_state;      
+    state_timer;            
+    team; index;            
+    has_ball;               
+    on_fire;                
+    turbo;                  
+    consecutive;            
+    facing;                 
+    sprite_data;            
+    sprite_w; sprite_h;     
+    stat_speed;             
+    stat_power;             
+    stat_shooting;          
+    stat_dunking;           
+    stat_stealing;          
+    stat_blocking;          
+    stat_pass;              
+    stat_clutch;            
+    stat_rebound;           
 }
 
 fn player_new(team, index, x, y) {
     var p = Player {
         x, y,
-        0, 0,               // vx, vy
-        PS_IDLE, PS_IDLE,    // state, prev_state
-        0,                   // state_timer
+        0, 0,
+        PS_IDLE, PS_IDLE,
+        0,
         team, index,
-        0,                   // has_ball
-        0,                   // on_fire
-        TURBO_MAX,           // turbo (start full)
-        0,                   // consecutive
-        0,                   // facing (right)
-        0,                   // sprite_data (set later)
+        0,
+        0,
+        TURBO_MAX,
+        0,
+        0,
+        0,
         PLAYER_SPRITE_W, PLAYER_SPRITE_H,
-        5, 5, 5, 5, 5, 5, 5, 5, 5   // default stats: all 5
+        5, 5, 5, 5, 5, 5, 5, 5, 5
     };
     return &p;
 }
@@ -109,7 +109,7 @@ fn player_set_stats(p, spd, pwr, sht, dnk, stl, blk, pas, clt, reb) {
     *(ptr + 25) = reb;
 }
 
-// --- State machine ---
+# --- State machine ---
 
 fn player_is_committed(state) {
     if (state == PS_SHOOT) { return 1; }
@@ -127,17 +127,17 @@ fn player_try_transition(p, new_state) {
     var state = *(ptr + 4);
     var timer = *(ptr + 6);
 
-    // Reject during committed states with active timer
+#     Reject during committed states with active timer
     if (player_is_committed(state) == 1) {
         if (timer > 0) {
             return state;
         }
     }
 
-    // Save previous state
+#     Save previous state
     *(ptr + 5) = state;
 
-    // Set new state and timer
+#     Set new state and timer
     *(ptr + 4) = new_state;
 
     if (new_state == PS_SHOOT) { *(ptr + 6) = SHOOT_FRAMES; }
@@ -161,14 +161,14 @@ fn player_tick_state(p) {
         *(ptr + 6) = timer;
 
         if (timer == 0) {
-            // Committed state expired → return to idle
-            *(ptr + 5) = *(ptr + 4);   // prev = current
+#             Committed state expired -> return to idle
+            *(ptr + 5) = *(ptr + 4);
             *(ptr + 4) = PS_IDLE;
         }
     }
 }
 
-// --- Movement ---
+# --- Movement ---
 
 fn asr_player(v, n) {
     if (v < 0) { return 0 - ((0 - v) >> n); }
@@ -179,23 +179,23 @@ fn player_apply_input(p, dx, dy, use_turbo) {
     var ptr: *i64 = p;
     var state = *(ptr + 4);
 
-    // Can't move during committed states
+#     Can't move during committed states
     if (player_is_committed(state) == 1) {
-        if (*(ptr + 6) > 0) { return; }
+        if (*(ptr + 6) > 0) { return 0; }
     }
 
     var vx = *(ptr + 2);
     var vy = *(ptr + 3);
     var speed_stat = *(ptr + 17);
 
-    // Max speed scales with Speed stat (1-10)
-    // max = base * (5 + stat) / 10
+#     Max speed scales with Speed stat (1-10)
+#     max = base * (5 + stat) / 10
     var max_speed = PLAYER_MAX_SPEED * (5 + speed_stat) / 10;
     if (use_turbo == 1) {
         var turbo = *(ptr + 11);
         var on_fire = *(ptr + 10);
         if (on_fire == 1) {
-            // Fire mode: infinite turbo
+#             Fire mode: infinite turbo
             max_speed = PLAYER_TURBO_MULT * (5 + speed_stat) / 10;
             _turbo_cooldown = TURBO_RECHARGE_DELAY;
         } elif (turbo > 0) {
@@ -207,7 +207,7 @@ fn player_apply_input(p, dx, dy, use_turbo) {
         }
     }
 
-    // Apply acceleration toward input direction
+#     Apply acceleration toward input direction
     if (dx != 0) {
         if (dx > 0) {
             vx = vx + PLAYER_ACCEL;
@@ -217,7 +217,7 @@ fn player_apply_input(p, dx, dy, use_turbo) {
             if (vx < (0 - max_speed)) { vx = 0 - max_speed; }
         }
     } else {
-        // Decelerate toward zero
+#         Decelerate toward zero
         if (vx > 0) {
             vx = vx - PLAYER_DECEL;
             if (vx < 0) { vx = 0; }
@@ -248,27 +248,27 @@ fn player_apply_input(p, dx, dy, use_turbo) {
     *(ptr + 2) = vx;
     *(ptr + 3) = vy;
 
-    // Update facing direction based on input
+#     Update facing direction based on input
     if (dx != 0) {
         if (dy != 0) {
-            // Diagonal
+#             Diagonal
             if (dx > 0) {
-                if (dy < 0) { *(ptr + 13) = 1; }     // up-right
-                else { *(ptr + 13) = 3; }              // down-right
+                if (dy < 0) { *(ptr + 13) = 1; }
+                else { *(ptr + 13) = 3; }
             } else {
-                if (dy < 0) { *(ptr + 13) = 7; }     // up-left
-                else { *(ptr + 13) = 5; }              // down-left
+                if (dy < 0) { *(ptr + 13) = 7; }
+                else { *(ptr + 13) = 5; }
             }
         } else {
-            if (dx > 0) { *(ptr + 13) = 2; }          // right
-            else { *(ptr + 13) = 6; }                  // left
+            if (dx > 0) { *(ptr + 13) = 2; }
+            else { *(ptr + 13) = 6; }
         }
     } elif (dy != 0) {
-        if (dy < 0) { *(ptr + 13) = 0; }              // up
-        else { *(ptr + 13) = 4; }                      // down
+        if (dy < 0) { *(ptr + 13) = 0; }
+        else { *(ptr + 13) = 4; }
     }
 
-    // Transition to RUN if moving
+#     Transition to RUN if moving
     if (vx != 0) {
         if (state == PS_IDLE) { player_try_transition(p, PS_RUN); }
     } elif (vy != 0) {
@@ -279,7 +279,7 @@ fn player_apply_input(p, dx, dy, use_turbo) {
 fn player_update(p) {
     var ptr: *i64 = p;
 
-    // Apply velocity to position
+#     Apply velocity to position
     var x = *ptr;
     var y = *(ptr + 1);
     var vx = *(ptr + 2);
@@ -288,7 +288,7 @@ fn player_update(p) {
     x = x + vx;
     y = y + vy;
 
-    // Clamp to court bounds
+#     Clamp to court bounds
     if (x < COURT_LEFT) { x = COURT_LEFT; vx = 0; }
     if (x > COURT_RIGHT) { x = COURT_RIGHT; vx = 0; }
     if (y < COURT_FAR) { y = COURT_FAR; vy = 0; }
@@ -299,10 +299,10 @@ fn player_update(p) {
     *(ptr + 2) = vx;
     *(ptr + 3) = vy;
 
-    // Tick state timer
+#     Tick state timer
     player_tick_state(p);
 
-    // Recharge turbo (with cooldown delay after use)
+#     Recharge turbo (with cooldown delay after use)
     if (_turbo_cooldown > 0) {
         _turbo_cooldown = _turbo_cooldown - 1;
     } else {
@@ -314,7 +314,7 @@ fn player_update(p) {
         }
     }
 
-    // Return to idle if stopped moving
+#     Return to idle if stopped moving
     var state = *(ptr + 4);
     if (state == PS_RUN) {
         if (vx == 0) {
@@ -325,7 +325,7 @@ fn player_update(p) {
     }
 }
 
-// --- Rendering ---
+# --- Rendering ---
 
 fn player_draw(p) {
     var ptr: *i64 = p;
@@ -333,69 +333,69 @@ fn player_draw(p) {
     var y = *(ptr + 1);
     var team = *(ptr + 7);
 
-    // Convert game coords to screen coords
+#     Convert game coords to screen coords
     var screen_x = court_game_to_screen_x(x, y);
     var screen_y = court_game_to_screen_y(y);
 
-    // Get perspective scale
+#     Get perspective scale
     var scale = court_scale_at_y(y);
 
-    // Scaled sprite dimensions
+#     Scaled sprite dimensions
     var draw_w = asr_player(PLAYER_SPRITE_W * scale, 16);
     var draw_h = asr_player(PLAYER_SPRITE_H * scale, 16);
     if (draw_w < 4) { draw_w = 4; }
     if (draw_h < 6) { draw_h = 6; }
 
-    // Center sprite on position
+#     Center sprite on position
     var draw_x = screen_x - draw_w / 2;
     var draw_y = screen_y - draw_h;
 
-    // Draw shadow first
+#     Draw shadow first
     sprite_draw_shadow(draw_x, screen_y, draw_w);
 
-    // Draw placeholder sprite (colored rectangle for now)
+#     Draw placeholder sprite (colored rectangle for now)
     var sprite_data = *(ptr + 14);
     if (sprite_data != 0) {
         var spr = Sprite { sprite_data, PLAYER_SPRITE_W, PLAYER_SPRITE_H };
         sprite_blit_scaled(&spr, draw_x, draw_y, draw_w, draw_h);
     } else {
-        // Fallback: draw colored rectangle
-        var jersey_color = 16;   // home blue
+#         Fallback: draw colored rectangle
+        var jersey_color = 16;
         if (team == TEAM_AWAY) {
-            jersey_color = 24;   // away red
+            jersey_color = 24;
         }
-        // Fire effect: flash between colors
+#         Fire effect: flash between colors
         var on_fire = *(ptr + 10);
         if (on_fire == 1) {
-            // Flash: cycle through fire colors every 4 frames
-            var fire_phase = *(ptr + 6);   // use state_timer as phase
+#             Flash: cycle through fire colors every 4 frames
+            var fire_phase = *(ptr + 6);
             if (fire_phase < 0) { fire_phase = 0 - fire_phase; }
             var fire_mod = fire_phase - (fire_phase / 12) * 12;
-            if (fire_mod < 4) { jersey_color = 48; }        // yellow
-            elif (fire_mod < 8) { jersey_color = 25; }      // orange
-            else { jersey_color = 24; }                       // red
+            if (fire_mod < 4) { jersey_color = 48; }
+            elif (fire_mod < 8) { jersey_color = 25; }
+            else { jersey_color = 24; }
         }
 
-        // State-based visual feedback
+#         State-based visual feedback
         var state = *(ptr + 4);
         if (state == PS_SHOOT) {
-            // Slight white flash during shot
+#             Slight white flash during shot
             jersey_color = 63;
         } elif (state == PS_BLOCK) {
-            // Red flash during block
+#             Red flash during block
             if (on_fire != 1) { jersey_color = 24; }
         } elif (state == PS_STEAL) {
-            // Quick flash
+#             Quick flash
             if (on_fire != 1) { jersey_color = 48; }
         }
 
-        // Head
+#         Head
         var head_h = draw_h / 4;
         var head_w = draw_w / 2;
         var head_x = draw_x + (draw_w - head_w) / 2;
-        draw_rect(head_x, draw_y, head_w, head_h, 20);  // skin tone
+        draw_rect(head_x, draw_y, head_w, head_h, 20);
 
-        // Body
+#         Body
         draw_rect(draw_x, draw_y + head_h, draw_w, draw_h - head_h, jersey_color);
     }
 }

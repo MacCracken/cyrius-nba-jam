@@ -1,19 +1,19 @@
-// cyrius-nba-jam — shoot.cyr
-// Shot mechanics: launch trajectory, accuracy model, make/miss.
-//
-// Reference: PLYR.ASM shot tables, BB.ASM ball trajectory
-// Original uses lookup tables for shot velocity based on distance.
-// We compute trajectory directly from physics.
-//
-// Shot flow:
-//   1. Player presses shoot → committed SHOOT state
-//   2. Compute target rim position
-//   3. Compute launch velocity (vx, vy, vz) to reach rim
-//   4. Apply accuracy: perturb velocity based on stats + distance
-//   5. Launch ball with computed velocity
-//   6. Ball follows physics (gravity, collisions)
+# cyrius-nba-jam -- shoot.cyr
+# Shot mechanics: launch trajectory, accuracy model, make/miss.
+#
+# Reference: PLYR.ASM shot tables, BB.ASM ball trajectory
+# Original uses lookup tables for shot velocity based on distance.
+# We compute trajectory directly from physics.
+#
+# Shot flow:
+#   1. Player presses shoot -> committed SHOOT state
+#   2. Compute target rim position
+#   3. Compute launch velocity (vx, vy, vz) to reach rim
+#   4. Apply accuracy: perturb velocity based on stats + distance
+#   5. Launch ball with computed velocity
+#   6. Ball follows physics (gravity, collisions)
 
-// --- PRNG (PCG multiply-add) ---
+# --- PRNG (PCG multiply-add) ---
 
 var _shoot_rng = 54321;
 
@@ -37,43 +37,43 @@ fn asr_shoot(v, n) {
     return v >> n;
 }
 
-// --- Trajectory computation ---
+# --- Trajectory computation ---
 
-// Compute launch velocity to reach a target position in N frames
-// Uses simplified projectile: we want the ball to travel from
-// (sx, sy, sz) to (tx, ty, tz) in flight_time frames under gravity.
-//
-// vx = (tx - sx) / t
-// vy = (ty - sy) / t
-// vz = (tz - sz) / t + gravity * t / 2  (compensate for gravity)
+# Compute launch velocity to reach a target position in N frames
+# Uses simplified projectile: we want the ball to travel from
+# (sx, sy, sz) to (tx, ty, tz) in flight_time frames under gravity.
+#
+# vx = (tx - sx) / t
+# vy = (ty - sy) / t
+# vz = (tz - sz) / t + gravity * t / 2  (compensate for gravity)
 
-var SHOT_FLIGHT_TIME = 30;      // frames for the ball to reach the rim
-var SHOT_ARC_HEIGHT = 983040;   // 15.0 — extra height added to arc
+var SHOT_FLIGHT_TIME = 30;
+var SHOT_ARC_HEIGHT = 983040;
 
 fn compute_shot_velocity(sx, sy, sz, tx, ty, tz, flight_time) {
-    // vx = (tx - sx) / flight_time
+#     vx = (tx - sx) / flight_time
     var dx = tx - sx;
     var dy = ty - sy;
     var dz = tz - sz;
 
-    // Add arc height: ball goes up then comes down
-    // We want the ball to peak at tz + arc_height midway through flight
-    // vz = dz/t + g*t/2 + 2*arc_height/t
+#     Add arc height: ball goes up then comes down
+#     We want the ball to peak at tz + arc_height midway through flight
+#     vz = dz/t + g*t/2 + 2*arc_height/t
     if (flight_time < 1) { flight_time = 1; }
     var vx = dx / flight_time;
     var vy = dy / flight_time;
 
-    // vz needs to account for gravity pulling the ball down
-    // vz_initial = dz/t + gravity*t/2
+#     vz needs to account for gravity pulling the ball down
+#     vz_initial = dz/t + gravity*t/2
     var gravity_compensation = (BALL_GRAVITY * flight_time) / 2;
     var arc_compensation = (SHOT_ARC_HEIGHT * 2) / flight_time;
     var vz = dz / flight_time + gravity_compensation + arc_compensation;
 
-    // Return as packed values via globals (no multi-return yet in this codebase)
+#     Return as packed values via globals (no multi-return yet in this codebase)
     return vx;
 }
 
-// Globals for multi-value return from trajectory computation
+# Globals for multi-value return from trajectory computation
 var _shot_vx = 0;
 var _shot_vy = 0;
 var _shot_vz = 0;
@@ -82,11 +82,11 @@ fn compute_shot(player, rim_x, rim_y) {
     var pp: *i64 = player;
     var sx = *pp;
     var sy = *(pp + 1);
-    var sz = BALL_HOLD_Z;       // ball starts at hold height
+    var sz = BALL_HOLD_Z;
 
     var tx = rim_x;
     var ty = rim_y;
-    var tz = RIM_Z;             // target is rim height
+    var tz = RIM_Z;
 
     var dx = tx - sx;
     var dy = ty - sy;
@@ -98,132 +98,132 @@ fn compute_shot(player, rim_x, rim_y) {
     _shot_vx = dx / t;
     _shot_vy = dy / t;
 
-    // vz with gravity compensation and arc
+#     vz with gravity compensation and arc
     var grav_comp = (BALL_GRAVITY * t) / 2;
     var arc_comp = (SHOT_ARC_HEIGHT * 2) / t;
     _shot_vz = dz / t + grav_comp + arc_comp;
 }
 
-// --- Accuracy model ---
-// Returns 1 if shot is good (will score), 0 if miss.
-// Factors: Shooting stat, distance, defender proximity, fire mode.
+# --- Accuracy model ---
+# Returns 1 if shot is good (will score), 0 if miss.
+# Factors: Shooting stat, distance, defender proximity, fire mode.
 
 fn shot_accuracy(player, rim_x, rim_y) {
     var pp: *i64 = player;
     var px = *pp;
     var py = *(pp + 1);
-    var shooting = *(pp + 19);    // stat_shooting
+    var shooting = *(pp + 19);
     var on_fire = *(pp + 10);
 
-    // Base accuracy: shooting_stat * 8 (max 80 for stat 10)
+#     Base accuracy: shooting_stat * 8 (max 80 for stat 10)
     var accuracy = shooting * 8;
 
-    // Distance penalty
+#     Distance penalty
     var d2 = dist_sq(px, py, rim_x, rim_y);
-    // Rough distance in game units (pre-shifted)
-    // Penalize 2 points per game unit of distance
+#     Rough distance in game units (pre-shifted)
+#     Penalize 2 points per game unit of distance
     var dist_penalty = 0;
-    // Approximate sqrt via bit counting (rough but fast)
+#     Approximate sqrt via bit counting (rough but fast)
     var d = 1;
     while (d * d < d2) { d = d + 1; }
-    // d is in pre-shifted units (shifted by 4), so actual distance is d << 4
-    dist_penalty = (d << 4) / 65536;  // convert back from fixed-point units
+#     d is in pre-shifted units (shifted by 4), so actual distance is d << 4
+    dist_penalty = (d << 4) / 65536;
     dist_penalty = dist_penalty * 2;
     accuracy = accuracy - dist_penalty;
 
-    // Fire mode: +90 accuracy (effectively 100%)
+#     Fire mode: +90 accuracy (effectively 100%)
     if (on_fire == 1) {
         accuracy = accuracy + FIRE_SHOOT_BONUS;
     }
 
-    // Clamp
-    if (accuracy < 5) { accuracy = 5; }      // always 5% minimum chance
-    if (accuracy > 95) { accuracy = 95; }     // never 100% guaranteed (unless fire)
-    if (on_fire == 1) { accuracy = 98; }      // fire: near-certain
+#     Clamp
+    if (accuracy < 5) { accuracy = 5; }
+    if (accuracy > 95) { accuracy = 95; }
+    if (on_fire == 1) { accuracy = 98; }
 
-    // Roll
+#     Roll
     var roll = shoot_rng_range(100);
     if (roll < accuracy) { return 1; }
     return 0;
 }
 
-// --- Apply accuracy perturbation ---
-// If shot misses, perturb the velocity so it doesn't go clean through the rim.
+# --- Apply accuracy perturbation ---
+# If shot misses, perturb the velocity so it doesn't go clean through the rim.
 
 fn shot_apply_miss(player, rim_x, rim_y) {
-    // Perturb vx and vy by a random amount
-    var perturbx = shoot_rng_range(131072) - 65536;   // ±1.0 in fixed-point
+#     Perturb vx and vy by a random amount
+    var perturbx = shoot_rng_range(131072) - 65536;
     var perturby = shoot_rng_range(131072) - 65536;
 
     _shot_vx = _shot_vx + perturbx;
     _shot_vy = _shot_vy + perturby;
 
-    // Also slightly perturb vz (short or long)
-    var perturbz = shoot_rng_range(65536) - 32768;    // ±0.5
+#     Also slightly perturb vz (short or long)
+    var perturbz = shoot_rng_range(65536) - 32768;
     _shot_vz = _shot_vz + perturbz;
 }
 
-// --- Main shoot function ---
-// Called when player presses shoot and is in SHOOT state.
+# --- Main shoot function ---
+# Called when player presses shoot and is in SHOOT state.
 
 fn shoot_ball(player, ball, target_rim_x, target_rim_y) {
     var pp: *i64 = player;
 
-    // Determine target rim (which basket to shoot at)
+#     Determine target rim (which basket to shoot at)
     var rim_x = target_rim_x;
     var rim_y = target_rim_y;
 
-    // Compute ideal trajectory
+#     Compute ideal trajectory
     compute_shot(player, rim_x, rim_y);
 
-    // Check accuracy
+#     Check accuracy
     var makes_it = shot_accuracy(player, rim_x, rim_y);
 
     if (makes_it == 0) {
-        // Miss: perturb the trajectory
+#         Miss: perturb the trajectory
         shot_apply_miss(player, rim_x, rim_y);
     }
 
-    // Release ball from player
+#     Release ball from player
     ball_release_from(ball, player);
 
-    // Record shooter
+#     Record shooter
     var bp: *i64 = ball;
-    *(bp + 9) = player;    // last_shooter
+    *(bp + 9) = player;
 
-    // Launch ball
+#     Launch ball
     ball_launch(ball, _shot_vx, _shot_vy, _shot_vz);
 }
 
-// --- Distance check: is player in shooting range? ---
+# --- Distance check: is player in shooting range? ---
 
 fn is_in_shoot_range(player, rim_x, rim_y) {
     var pp: *i64 = player;
     var px = *pp;
     var py = *(pp + 1);
 
-    // Max shooting range: ~200 game units (full court)
-    // Shots from beyond half court are very low percentage
+#     Max shooting range: ~200 game units (full court)
+#     Shots from beyond half court are very low percentage
     var d2 = dist_sq(px, py, rim_x, rim_y);
-    var max_range = 13107200;  // 200.0 in fixed-point
+    var max_range = 13107200;
     var max_r2 = radius_sq(max_range);
 
     if (d2 <= max_r2) { return 1; }
     return 0;
 }
 
-// --- Three-point line check ---
+# --- Three-point line check ---
 
 fn is_three_pointer(player, rim_x, rim_y) {
     var pp: *i64 = player;
     var px = *pp;
     var py = *(pp + 1);
 
-    // Three-point distance: ~14.0 game units from rim
-    var three_range = 917504;  // 14.0 in fixed-point
+#     Three-point distance: ~14.0 game units from rim
+    var three_range = 917504;
     var d2 = dist_sq(px, py, rim_x, rim_y);
     var r2 = radius_sq(three_range);
 
-    if (d2 > r2) { return 1; }   // beyond three-point line
+    if (d2 > r2) { return 1; }
     return 0;
 }

@@ -1,47 +1,47 @@
-// cyrius-nba-jam — input.cyr
-// Non-blocking terminal input via termios raw mode.
-// Maps keyboard to game actions.
-//
-// Terminal raw mode: disable echo, disable canonical (line) mode,
-// set VMIN=0 VTIME=0 for non-blocking reads.
-//
-// Key mapping:
-//   Arrow keys / WASD — movement
-//   Space             — shoot / action
-//   Z                 — pass
-//   X                 — turbo
-//   C                 — switch player (teammate)
-//   V                 — steal / block
-//   P                 — PPM screenshot
-//   Q / ESC           — quit
+# cyrius-nba-jam -- input.cyr
+# Non-blocking terminal input via termios raw mode.
+# Maps keyboard to game actions.
+#
+# Terminal raw mode: disable echo, disable canonical (line) mode,
+# set VMIN=0 VTIME=0 for non-blocking reads.
+#
+# Key mapping:
+#   Arrow keys / WASD -- movement
+#   Space             -- shoot / action
+#   Z                 -- pass
+#   X                 -- turbo
+#   C                 -- switch player (teammate)
+#   V                 -- steal / block
+#   P                 -- PPM screenshot
+#   Q / ESC           -- quit
 
-// --- termios ---
-// struct termios is 60 bytes on Linux x86_64:
-//   u32 c_iflag       (offset 0)
-//   u32 c_oflag       (offset 4)
-//   u32 c_cflag       (offset 8)
-//   u32 c_lflag       (offset 12)
-//   u8  c_line        (offset 16)
-//   u8  c_cc[19]      (offset 17)
-//   u32 padding       (offset 36)
-//   u32 c_ispeed      (offset 40)
-//   u32 c_ospeed      (offset 44)
-// Total: 48-60 bytes depending on alignment
+# --- termios ---
+# struct termios is 60 bytes on Linux x86_64:
+#   u32 c_iflag       (offset 0)
+#   u32 c_oflag       (offset 4)
+#   u32 c_cflag       (offset 8)
+#   u32 c_lflag       (offset 12)
+#   u8  c_line        (offset 16)
+#   u8  c_cc[19]      (offset 17)
+#   u32 padding       (offset 36)
+#   u32 c_ispeed      (offset 40)
+#   u32 c_ospeed      (offset 44)
+# Total: 48-60 bytes depending on alignment
 
-var _termios_orig[8];    // 64 bytes — original terminal settings
-var _termios_raw[8];     // 64 bytes — raw mode settings
+var _termios_orig[8];
+var _termios_raw[8];
 var _input_ready = 0;
 
-// termios constants
-var TCGETS = 21505;       // ioctl TCGETS
-var TCSETS = 21506;        // ioctl TCSETS
-var ICANON = 2;            // canonical mode flag
-var ECHO_FLAG = 8;         // echo flag
-var ISIG = 1;              // signal generation flag
-var VMIN_OFFSET = 23;      // c_cc[VMIN] offset
-var VTIME_OFFSET = 24;     // c_cc[VTIME] offset
+# termios constants
+var TCGETS = 21505;
+var TCSETS = 21506;
+var ICANON = 2;
+var ECHO_FLAG = 8;
+var ISIG = 1;
+var VMIN_OFFSET = 23;
+var VTIME_OFFSET = 24;
 
-// Input state
+# Input state
 var _input_dx = 0;
 var _input_dy = 0;
 var _input_shoot = 0;
@@ -53,38 +53,38 @@ var _input_switch = 0;
 var _input_steal = 0;
 
 fn input_init() {
-    if (_input_ready == 1) { return; }
+    if (_input_ready == 1) { return 0; }
 
-    // Get current terminal settings
-    syscall(16, 0, TCGETS, &_termios_orig);     // ioctl(stdin, TCGETS, &orig)
+#     Get current terminal settings
+    syscall(16, 0, TCGETS, &_termios_orig);
 
-    // Copy to raw
+#     Copy to raw
     memcpy(&_termios_raw, &_termios_orig, 64);
 
-    // Modify c_lflag: clear ICANON, ECHO, ISIG
+#     Modify c_lflag: clear ICANON, ECHO, ISIG
     var lflag = load32(&_termios_raw + 12);
-    lflag = lflag & (0 - 1 - ICANON - ECHO_FLAG - ISIG);  // clear bits
+    lflag = lflag & (0 - 1 - ICANON - ECHO_FLAG - ISIG);
     store32(&_termios_raw + 12, lflag);
 
-    // Set VMIN=0 VTIME=0 for non-blocking
+#     Set VMIN=0 VTIME=0 for non-blocking
     store8(&_termios_raw + VMIN_OFFSET, 0);
     store8(&_termios_raw + VTIME_OFFSET, 0);
 
-    // Apply raw settings
+#     Apply raw settings
     syscall(16, 0, TCSETS, &_termios_raw);
 
     _input_ready = 1;
 }
 
 fn input_restore() {
-    if (_input_ready == 0) { return; }
-    // Restore original terminal settings
+    if (_input_ready == 0) { return 0; }
+#     Restore original terminal settings
     syscall(16, 0, TCSETS, &_termios_orig);
     _input_ready = 0;
 }
 
 fn input_poll() {
-    // Reset per-frame input state
+#     Reset per-frame input state
     _input_dx = 0;
     _input_dy = 0;
     _input_shoot = 0;
@@ -94,67 +94,67 @@ fn input_poll() {
     _input_switch = 0;
     _input_steal = 0;
 
-    // Read all available input bytes (non-blocking)
-    var buf[4];    // enough for escape sequences
-    var n = syscall(0, 0, &buf, 1);   // read(stdin, buf, 1)
+#     Read all available input bytes (non-blocking)
+    var buf[4];
+    var n = syscall(0, 0, &buf, 1);
 
     while (n > 0) {
         var ch = load8(&buf);
 
-        // Regular keys
-        if (ch == 113) { _input_quit = 1; return; }      // 'q'
-        if (ch == 81) { _input_quit = 1; return; }        // 'Q'
-        if (ch == 27) {                                    // ESC or arrow key
-            // Try to read more (escape sequence)
+#         Regular keys
+        if (ch == 113) { _input_quit = 1; return 0; }
+        if (ch == 81) { _input_quit = 1; return 0; }
+        if (ch == 27) {
+#             Try to read more (escape sequence)
             var n2 = syscall(0, 0, &buf, 1);
             if (n2 > 0) {
                 var ch2 = load8(&buf);
-                if (ch2 == 91) {    // '['  — CSI sequence
+                if (ch2 == 91) {
                     var n3 = syscall(0, 0, &buf, 1);
                     if (n3 > 0) {
                         var ch3 = load8(&buf);
-                        if (ch3 == 65) { _input_dy = -1; }    // Up
-                        if (ch3 == 66) { _input_dy = 1; }     // Down
-                        if (ch3 == 67) { _input_dx = 1; }     // Right
-                        if (ch3 == 68) { _input_dx = -1; }    // Left
+                        if (ch3 == 65) { _input_dy = -1; }
+                        if (ch3 == 66) { _input_dy = 1; }
+                        if (ch3 == 67) { _input_dx = 1; }
+                        if (ch3 == 68) { _input_dx = -1; }
                     }
                 }
             } else {
-                _input_quit = 1;   // bare ESC = quit
-                return;
+                _input_quit = 1;
+                return 0;
             }
         }
 
-        // WASD
-        if (ch == 119) { _input_dy = -1; }    // 'w'
-        if (ch == 87) { _input_dy = -1; }     // 'W'
-        if (ch == 115) { _input_dy = 1; }     // 's'
-        if (ch == 83) { _input_dy = 1; }      // 'S'
-        if (ch == 97) { _input_dx = -1; }     // 'a'
-        if (ch == 65) { _input_dx = -1; }     // 'A'
-        if (ch == 100) { _input_dx = 1; }     // 'd'
-        if (ch == 68) { _input_dx = 1; }      // 'D'
+#         WASD
+        if (ch == 119) { _input_dy = -1; }
+        if (ch == 87) { _input_dy = -1; }
+        if (ch == 115) { _input_dy = 1; }
+        if (ch == 83) { _input_dy = 1; }
+        if (ch == 97) { _input_dx = -1; }
+        if (ch == 65) { _input_dx = -1; }
+        if (ch == 100) { _input_dx = 1; }
+        if (ch == 68) { _input_dx = 1; }
 
-        // Action buttons
-        if (ch == 32) { _input_shoot = 1; }   // space = shoot
-        if (ch == 122) { _input_pass = 1; }   // 'z' = pass
-        if (ch == 90) { _input_pass = 1; }    // 'Z' = pass
-        if (ch == 120) { _input_turbo = 1; }  // 'x' = turbo
-        if (ch == 88) { _input_turbo = 1; }   // 'X' = turbo
+#         Action buttons
+        if (ch == 32) { _input_shoot = 1; }
+        if (ch == 122) { _input_pass = 1; }
+        if (ch == 90) { _input_pass = 1; }
+        if (ch == 120) { _input_turbo = 1; }
+        if (ch == 88) { _input_turbo = 1; }
 
-        // Switch player
-        if (ch == 99) { _input_switch = 1; }   // 'c' = switch
-        if (ch == 67) { _input_switch = 1; }   // 'C'
+#         Switch player
+        if (ch == 99) { _input_switch = 1; }
+        if (ch == 67) { _input_switch = 1; }
 
-        // Steal/block
-        if (ch == 118) { _input_steal = 1; }   // 'v' = steal/block
-        if (ch == 86) { _input_steal = 1; }    // 'V'
+#         Steal/block
+        if (ch == 118) { _input_steal = 1; }
+        if (ch == 86) { _input_steal = 1; }
 
-        // Screenshot
-        if (ch == 112) { _input_screenshot = 1; }  // 'p' = PPM screenshot
-        if (ch == 80) { _input_screenshot = 1; }   // 'P'
+#         Screenshot
+        if (ch == 112) { _input_screenshot = 1; }
+        if (ch == 80) { _input_screenshot = 1; }
 
-        // Try to read more
+#         Try to read more
         n = syscall(0, 0, &buf, 1);
     }
 }

@@ -1,8 +1,8 @@
-// cyrius-nba-jam — test suite
-// v1.0.0: Tests for physics, fire, stats, render, sprite, court,
-// player, ball, collision, shooting, dunks, game state, HUD, AI,
-// inbound, rebound, clutch, fouls, roster, menu, announcer,
-// difficulty, bounds, hardening.
+# cyrius-nba-jam -- test suite
+# v1.0.0: Tests for physics, fire, stats, render, sprite, court,
+# player, ball, collision, shooting, dunks, game state, HUD, AI,
+# inbound, rebound, clutch, fouls, roster, menu, announcer,
+# difficulty, bounds, hardening.
 
 include "lib/string.cyr"
 include "lib/fmt.cyr"
@@ -25,7 +25,7 @@ include "src/roster.cyr"
 include "src/menu.cyr"
 include "src/audio.cyr"
 
-// ========= Ball physics (from v0.1.0) =========
+# ========= Ball physics (from v0.1.0) =========
 
 fn test_ball_arc() {
     var y = 100 * 65536;
@@ -42,7 +42,7 @@ fn test_ball_arc() {
     return 0;
 }
 
-// ========= Fire mechanic =========
+# ========= Fire mechanic =========
 
 fn test_fire_activation() {
     var consecutive = 3;
@@ -60,7 +60,7 @@ fn test_fire_extinguish() {
     return 0;
 }
 
-// ========= Stats =========
+# ========= Stats =========
 
 fn test_stat_range() {
     var stats[9];
@@ -78,7 +78,7 @@ fn test_stat_range() {
     return 0;
 }
 
-// ========= Render =========
+# ========= Render =========
 
 fn test_fb_clear() {
     render_init();
@@ -125,7 +125,7 @@ fn test_palette() {
     return 0;
 }
 
-// ========= Sprite =========
+# ========= Sprite =========
 
 fn test_sprite_blit() {
     render_init();
@@ -148,7 +148,7 @@ fn test_sprite_make_player() {
     return 0;
 }
 
-// ========= Court =========
+# ========= Court =========
 
 fn test_court_screen_y() {
     var far_y = court_game_to_screen_y(COURT_FAR);
@@ -166,7 +166,7 @@ fn test_court_scale() {
     return 0;
 }
 
-// ========= Player state machine =========
+# ========= Player state machine =========
 
 fn test_player_committed() {
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
@@ -212,7 +212,7 @@ fn test_player_court_bounds() {
     return 0;
 }
 
-// ========= Ball =========
+# ========= Ball =========
 
 fn test_ball_new() {
     var b = ball_new(6553600, 8519680);
@@ -234,19 +234,19 @@ fn test_ball_launch() {
 
 fn test_ball_gravity() {
     var b = ball_new(6553600, 8519680);
-    ball_launch(b, 0, 0, 131072);   // straight up
+    ball_launch(b, 0, 0, 131072);
 
     var bp: *i64 = b;
     var initial_vz = *(bp + 5);
 
-    // Step a few frames
+#     Step a few frames
     var i = 0;
     while (i < 5) {
         ball_physics_step(b);
         i = i + 1;
     }
 
-    // vz should have decreased (gravity pulls down)
+#     vz should have decreased (gravity pulls down)
     assert(*(bp + 5) < initial_vz, "gravity reduces vz");
     return 0;
 }
@@ -254,14 +254,14 @@ fn test_ball_gravity() {
 fn test_ball_floor_bounce() {
     var b = ball_new(6553600, 8519680);
     var bp: *i64 = b;
-    // Put ball at floor with downward velocity
-    *(bp + 2) = 0;              // z = floor
-    *(bp + 5) = 0 - 65536;     // vz = -1.0 (downward)
+#     Put ball at floor with downward velocity
+    *(bp + 2) = 0;
+    *(bp + 5) = 0 - 65536;
     *(bp + 6) = BALL_FLIGHT;
 
     ball_floor_check(b);
 
-    // vz should be positive (bounced)
+#     vz should be positive (bounced)
     assert(*(bp + 5) >= 0, "vz positive after floor bounce");
     assert_eq(*(bp + 2), 0, "z at floor after bounce");
     return 0;
@@ -289,17 +289,17 @@ fn test_ball_held_follows_player() {
 
     var bp: *i64 = b;
     var pp: *i64 = p;
-    // Ball should be near player position
+#     Ball should be near player position
     var dx = *bp - *pp;
     if (dx < 0) { dx = 0 - dx; }
-    assert(dx < 327680, "ball follows player x");   // within 5.0
+    assert(dx < 327680, "ball follows player x");
     return 0;
 }
 
-// ========= Collision =========
+# ========= Collision =========
 
 fn test_dist_sq() {
-    var d = dist_sq(0, 0, 196608, 262144);   // (0,0) to (3,4)
+    var d = dist_sq(0, 0, 196608, 262144);
     assert(d > 0, "dist_sq positive for 3-4-5 triangle");
     return 0;
 }
@@ -307,10 +307,10 @@ fn test_dist_sq() {
 fn test_ball_player_pickup() {
     var b = ball_new(6553600, 8519680);
     var bp: *i64 = b;
-    *(bp + 6) = BALL_BOUNCE;     // loose ball
-    *(bp + 2) = 0;               // on floor
+    *(bp + 6) = BALL_BOUNCE;
+    *(bp + 2) = 0;
 
-    // Player right on top of ball
+#     Player right on top of ball
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
     var result = collision_ball_player(b, p);
     assert_eq(result, 1, "player picks up nearby ball");
@@ -324,14 +324,14 @@ fn test_ball_player_too_far() {
     *(bp + 6) = BALL_BOUNCE;
     *(bp + 2) = 0;
 
-    // Player far away
-    var p = player_new(TEAM_HOME, 0, 14417920, 8519680);  // (220, 130)
+#     Player far away
+    var p = player_new(TEAM_HOME, 0, 14417920, 8519680);
     var result = collision_ball_player(b, p);
     assert_eq(result, 0, "no pickup when far away");
     return 0;
 }
 
-// ========= Shooting =========
+# ========= Shooting =========
 
 fn test_shoot_rng_determinism() {
     shoot_rng_seed(42);
@@ -346,25 +346,25 @@ fn test_compute_shot() {
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
     compute_shot(p, RIM_RIGHT_X, RIM_Y);
 
-    // vx should be positive (shooting right)
+#     vx should be positive (shooting right)
     assert(_shot_vx > 0, "shot vx positive toward right rim");
-    // vz should be positive (ball goes up)
+#     vz should be positive (ball goes up)
     assert(_shot_vz > 0, "shot vz positive (upward arc)");
     return 0;
 }
 
 fn test_three_pointer() {
-    // Close player: not a three
+#     Close player: not a three
     var p_close = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 655360, RIM_Y);
     assert_eq(is_three_pointer(p_close, RIM_RIGHT_X, RIM_Y), 0, "close = 2pt");
 
-    // Far player: three-pointer
-    var p_far = player_new(TEAM_HOME, 0, 6553600, 8519680);  // (100, 130)
+#     Far player: three-pointer
+    var p_far = player_new(TEAM_HOME, 0, 6553600, 8519680);
     assert_eq(is_three_pointer(p_far, RIM_RIGHT_X, RIM_Y), 1, "far = 3pt");
     return 0;
 }
 
-// ========= Game state =========
+# ========= Game state =========
 
 fn test_game_new() {
     var g = game_new();
@@ -380,7 +380,7 @@ fn test_game_tipoff_to_playing() {
     var g = game_new();
     var gp: *i64 = g;
 
-    // Tick through tipoff
+#     Tick through tipoff
     var i = 0;
     while (i < TIPOFF_FRAMES + 1) {
         game_update_tipoff(g);
@@ -393,7 +393,7 @@ fn test_game_tipoff_to_playing() {
 fn test_game_clock_seconds() {
     var g = game_new();
     var gp: *i64 = g;
-    *(gp + 2) = 3600;    // 60 seconds * 60 fps
+    *(gp + 2) = 3600;
     assert_eq(game_clock_seconds(g), 60, "clock_seconds = 60");
     return 0;
 }
@@ -419,7 +419,7 @@ fn test_game_turnover() {
     return 0;
 }
 
-// ========= HUD =========
+# ========= HUD =========
 
 fn test_hud_digit() {
     render_init();
@@ -427,7 +427,7 @@ fn test_hud_digit() {
     hud_init_font();
     hud_draw_digit(0, 100, 100, 8, 2);
 
-    // Digit "0" at 2x scale: top row = 111 → 6 pixels at (100-105, 100-101)
+#     Digit "0" at 2x scale: top row = 111 -> 6 pixels at (100-105, 100-101)
     assert_eq(fb_get(100, 100), 8, "digit 0 top-left");
     assert_eq(fb_get(104, 100), 8, "digit 0 top-right");
     return 0;
@@ -443,32 +443,32 @@ fn test_hud_renders() {
 
     hud_draw(42, 37, 2, 120, 18, &players, 1);
 
-    // Top bar should have non-zero pixels
+#     Top bar should have non-zero pixels
     var top_pixel = fb_get(10, 3);
     assert(top_pixel != 0, "HUD renders score area");
     return 0;
 }
 
-// ========= Steal =========
+# ========= Steal =========
 
 fn test_steal_close() {
-    var stealer = player_new(TEAM_AWAY, 0, 6619136, 8519680);  // very close to handler
-    player_set_stats(stealer, 5, 5, 5, 5, 10, 5, 5, 5, 5);    // max steal stat
+    var stealer = player_new(TEAM_AWAY, 0, 6619136, 8519680);
+    player_set_stats(stealer, 5, 5, 5, 5, 10, 5, 5, 5, 5);
 
     var handler = player_new(TEAM_HOME, 0, 6553600, 8519680);
     var hp: *i64 = handler;
-    *(hp + 9) = 1;     // has_ball
+    *(hp + 9) = 1;
 
     var b = ball_new(6553600, 8519680);
     ball_give_to(b, handler);
 
-    // With steal stat 10, probability is 60%. Try multiple times.
-    _steal_rng = 1;     // seed for reproducibility
+#     With steal stat 10, probability is 60%. Try multiple times.
+    _steal_rng = 1;
     var stolen = 0;
     var attempts = 20;
     var i = 0;
     while (i < attempts) {
-        // Reset state for each attempt
+#         Reset state for each attempt
         ball_give_to(b, handler);
         var result = collision_try_steal(stealer, handler, b);
         if (result == 1) { stolen = stolen + 1; }
@@ -481,7 +481,7 @@ fn test_steal_close() {
 
 fn test_steal_different_team_only() {
     var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
-    var p2 = player_new(TEAM_HOME, 1, 6619136, 8519680);   // same team
+    var p2 = player_new(TEAM_HOME, 1, 6619136, 8519680);
     player_set_stats(p1, 5, 5, 5, 5, 10, 5, 5, 5, 5);
 
     var b = ball_new(6553600, 8519680);
@@ -492,14 +492,14 @@ fn test_steal_different_team_only() {
     return 0;
 }
 
-// ========= Block =========
+# ========= Block =========
 
 fn test_block_requires_shoot_state() {
     var blocker = player_new(TEAM_AWAY, 0, 6619136, 8519680);
-    player_set_stats(blocker, 5, 5, 5, 5, 5, 10, 5, 5, 5);    // max block
+    player_set_stats(blocker, 5, 5, 5, 5, 5, 10, 5, 5, 5);
 
     var shooter = player_new(TEAM_HOME, 0, 6553600, 8519680);
-    // Shooter NOT in shoot state
+#     Shooter NOT in shoot state
     var sp: *i64 = shooter;
     *(sp + 4) = PS_RUN;
 
@@ -509,15 +509,15 @@ fn test_block_requires_shoot_state() {
     return 0;
 }
 
-// ========= Pass interception =========
+# ========= Pass interception =========
 
 fn test_intercept_close() {
-    var b = ball_new(10485760, 8519680);    // ball at (160, 130)
+    var b = ball_new(10485760, 8519680);
     var bp: *i64 = b;
     *(bp + 6) = BALL_FLIGHT;
-    *(bp + 2) = 196608;     // z = 3.0 (catchable height)
+    *(bp + 2) = 196608;
 
-    // Defender right on the ball path
+#     Defender right on the ball path
     var defender = player_new(TEAM_AWAY, 0, 10485760, 8519680);
     var players[1];
     store64(&players, defender);
@@ -534,7 +534,7 @@ fn test_intercept_same_team_ignored() {
     *(bp + 6) = BALL_FLIGHT;
     *(bp + 2) = 196608;
 
-    // Same team player — should not intercept
+#     Same team player -- should not intercept
     var teammate = player_new(TEAM_HOME, 1, 10485760, 8519680);
     var players[1];
     store64(&players, teammate);
@@ -544,22 +544,22 @@ fn test_intercept_same_team_ignored() {
     return 0;
 }
 
-// ========= Dunk =========
+# ========= Dunk =========
 
 fn test_can_dunk_in_range() {
-    // Player near right rim with decent dunking stat
-    var p = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 327680, RIM_Y);  // 5.0 from rim
-    player_set_stats(p, 5, 5, 5, 8, 5, 5, 5, 5, 5);    // dunking = 8
+#     Player near right rim with decent dunking stat
+    var p = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 327680, RIM_Y);
+    player_set_stats(p, 5, 5, 5, 8, 5, 5, 5, 5, 5);
     var pp: *i64 = p;
-    *(pp + 9) = 1;     // has_ball
+    *(pp + 9) = 1;
 
     assert_eq(can_dunk(p, RIM_RIGHT_X, RIM_Y), 1, "can dunk near rim with stat 8");
     return 0;
 }
 
 fn test_cant_dunk_too_far() {
-    // Player far from rim
-    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);   // (100, 130) — far
+#     Player far from rim
+    var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
     player_set_stats(p, 5, 5, 5, 10, 5, 5, 5, 5, 5);
     var pp: *i64 = p;
     *(pp + 9) = 1;
@@ -569,9 +569,9 @@ fn test_cant_dunk_too_far() {
 }
 
 fn test_cant_dunk_low_stat() {
-    // Player near rim but low dunking stat
+#     Player near rim but low dunking stat
     var p = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 196608, RIM_Y);
-    player_set_stats(p, 5, 5, 5, 2, 5, 5, 5, 5, 5);    // dunking = 2 (below min)
+    player_set_stats(p, 5, 5, 5, 2, 5, 5, 5, 5, 5);
     var pp: *i64 = p;
     *(pp + 9) = 1;
 
@@ -581,9 +581,9 @@ fn test_cant_dunk_low_stat() {
 
 fn test_dunk_type_standard() {
     var p = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 327680, RIM_Y);
-    player_set_stats(p, 5, 5, 5, 4, 5, 5, 5, 5, 5);    // dunking = 4 (below special threshold)
+    player_set_stats(p, 5, 5, 5, 4, 5, 5, 5, 5, 5);
     var pp: *i64 = p;
-    *(pp + 11) = 50;   // some turbo
+    *(pp + 11) = 50;
 
     var dtype = select_dunk_type(p, RIM_RIGHT_X, RIM_Y);
     assert_eq(dtype, DUNK_STANDARD, "low stat = standard dunk");
@@ -591,11 +591,11 @@ fn test_dunk_type_standard() {
 }
 
 fn test_dunk_type_tomahawk() {
-    var p = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 524288, RIM_Y);   // 8.0 from rim
-    player_set_stats(p, 5, 5, 5, 9, 5, 5, 5, 5, 5);    // dunking = 9
+    var p = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 524288, RIM_Y);
+    player_set_stats(p, 5, 5, 5, 9, 5, 5, 5, 5, 5);
     var pp: *i64 = p;
-    *(pp + 11) = 50;   // has turbo
-    *(pp + 2) = 65536;  // moving right toward rim (vx > 0)
+    *(pp + 11) = 50;
+    *(pp + 2) = 65536;
 
     var dtype = select_dunk_type(p, RIM_RIGHT_X, RIM_Y);
     assert_eq(dtype, DUNK_TOMAHAWK, "high stat + turbo + far = tomahawk");
@@ -608,13 +608,13 @@ fn test_dunk_type_name() {
     return 0;
 }
 
-// ========= Goal tending =========
+# ========= Goal tending =========
 
 fn test_goal_tending_descending_near_rim() {
     var b = ball_new(RIM_RIGHT_X, RIM_Y);
     var bp: *i64 = b;
-    *(bp + 2) = 655360;         // z = 10.0 (rim height)
-    *(bp + 5) = 0 - 32768;     // vz = -0.5 (descending)
+    *(bp + 2) = 655360;
+    *(bp + 5) = 0 - 32768;
     *(bp + 6) = BALL_FLIGHT;
 
     var gt = is_goal_tending(b);
@@ -626,7 +626,7 @@ fn test_no_goal_tending_ascending() {
     var b = ball_new(RIM_RIGHT_X, RIM_Y);
     var bp: *i64 = b;
     *(bp + 2) = 655360;
-    *(bp + 5) = 32768;         // vz = +0.5 (ascending)
+    *(bp + 5) = 32768;
     *(bp + 6) = BALL_FLIGHT;
 
     var gt = is_goal_tending(b);
@@ -635,7 +635,7 @@ fn test_no_goal_tending_ascending() {
 }
 
 fn test_no_goal_tending_far() {
-    var b = ball_new(6553600, 8519680);    // far from rim
+    var b = ball_new(6553600, 8519680);
     var bp: *i64 = b;
     *(bp + 2) = 655360;
     *(bp + 5) = 0 - 32768;
@@ -646,17 +646,17 @@ fn test_no_goal_tending_far() {
     return 0;
 }
 
-// ========= Alley-oop =========
+# ========= Alley-oop =========
 
 fn test_alley_oop_conditions() {
-    // Receiver near rim, ball in flight above hold height, ball near receiver
+#     Receiver near rim, ball in flight above hold height, ball near receiver
     var receiver = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 196608, RIM_Y);
     player_set_stats(receiver, 5, 5, 5, 7, 5, 5, 5, 5, 5);
 
     var b = ball_new(RIM_RIGHT_X - 262144, RIM_Y);
     var bp: *i64 = b;
     *(bp + 6) = BALL_FLIGHT;
-    *(bp + 2) = 524288;     // z = 8.0 (above hold height of 5.0)
+    *(bp + 2) = 524288;
 
     assert_eq(can_alley_oop(receiver, b, RIM_RIGHT_X, RIM_Y), 1,
               "alley-oop conditions met");
@@ -669,14 +669,14 @@ fn test_alley_oop_no_ball_flight() {
 
     var b = ball_new(RIM_RIGHT_X - 262144, RIM_Y);
     var bp: *i64 = b;
-    *(bp + 6) = BALL_HELD;    // not in flight
+    *(bp + 6) = BALL_HELD;
 
     assert_eq(can_alley_oop(receiver, b, RIM_RIGHT_X, RIM_Y), 0,
               "no alley-oop without flight ball");
     return 0;
 }
 
-// ========= Turbo =========
+# ========= Turbo =========
 
 fn test_turbo_drain() {
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
@@ -684,10 +684,10 @@ fn test_turbo_drain() {
     var ptr: *i64 = p;
     var initial_turbo = *(ptr + 11);
 
-    // Use turbo for 10 frames
+#     Use turbo for 10 frames
     var i = 0;
     while (i < 10) {
-        player_apply_input(p, 1, 0, 1);   // turbo = 1
+        player_apply_input(p, 1, 0, 1);
         player_update(p);
         i = i + 1;
     }
@@ -700,22 +700,22 @@ fn test_turbo_fire_infinite() {
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
     player_set_stats(p, 7, 5, 8, 6, 4, 5, 6, 7, 5);
     var ptr: *i64 = p;
-    *(ptr + 10) = 1;    // on_fire
-    *(ptr + 11) = 50;   // start at half turbo
+    *(ptr + 10) = 1;
+    *(ptr + 11) = 50;
 
-    // Use turbo for 10 frames while on fire
+#     Use turbo for 10 frames while on fire
     var i = 0;
     while (i < 10) {
         player_apply_input(p, 1, 0, 1);
         i = i + 1;
     }
 
-    // Turbo should not have drained (fire = infinite)
+#     Turbo should not have drained (fire = infinite)
     assert_eq(*(ptr + 11), 50, "fire mode: turbo doesn't drain");
     return 0;
 }
 
-// ========= AI =========
+# ========= AI =========
 
 fn test_ai_init_and_active() {
     ai_init();
@@ -735,9 +735,9 @@ fn test_ai_difficulty_setting() {
 }
 
 fn test_ai_find_nearest_opponent() {
-    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);      // home at (100, 130)
-    var p2 = player_new(TEAM_AWAY, 0, 6619136, 8519680);      // away at (101, 130) — close
-    var p3 = player_new(TEAM_AWAY, 1, 14417920, 8519680);     // away at (220, 130) — far
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var p2 = player_new(TEAM_AWAY, 0, 6619136, 8519680);
+    var p3 = player_new(TEAM_AWAY, 1, 14417920, 8519680);
     var players[3];
     store64(&players, p1);
     store64(&players + 8, p2);
@@ -763,15 +763,15 @@ fn test_ai_find_teammate() {
 }
 
 fn test_ai_ball_handler_offense_shoots_close() {
-    // Ball handler very close to rim should eventually shoot or dunk
+#     Ball handler very close to rim should eventually shoot or dunk
     ai_init();
     ai_set_active(0, 1);
     ai_set_difficulty(0, AI_DIFF_HARD);
 
-    var p1 = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 327680, RIM_Y);  // near rim
-    player_set_stats(p1, 7, 5, 9, 8, 4, 5, 6, 7, 5);  // good shooter + dunker
+    var p1 = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 327680, RIM_Y);
+    player_set_stats(p1, 7, 5, 9, 8, 4, 5, 6, 7, 5);
     var pp: *i64 = p1;
-    *(pp + 9) = 1;     // has ball
+    *(pp + 9) = 1;
 
     var p2 = player_new(TEAM_HOME, 1, 6553600, 11141120);
     var p3 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
@@ -788,19 +788,19 @@ fn test_ai_ball_handler_offense_shoots_close() {
     var g = game_new();
     var gp: *i64 = g;
     *gp = STATE_PLAYING;
-    *(gp + 6) = TEAM_HOME;   // home has possession
+    *(gp + 6) = TEAM_HOME;
 
-    // Run AI several times — with high stats near rim, should act
+#     Run AI several times -- with high stats near rim, should act
     _ai_rng = 42;
     var shot_or_dunk = 0;
     var i = 0;
     while (i < 50) {
-        // Reset state each attempt to avoid cooldown blocking
+#         Reset state each attempt to avoid cooldown blocking
         ball_give_to(b, p1);
         *(pp + 4) = PS_IDLE;
         *(pp + 6) = 0;
         var s: *i64 = load64(&_ai_states);
-        *(s + 1) = 0;  // reset shoot cooldown
+        *(s + 1) = 0;
 
         var action = ai_update_player(p1, 0, b, g, RIM_RIGHT_X, RIM_Y,
                                        &players, 4);
@@ -813,16 +813,16 @@ fn test_ai_ball_handler_offense_shoots_close() {
 }
 
 fn test_ai_defense_chases_handler() {
-    // Defensive AI should move toward the ball handler
+#     Defensive AI should move toward the ball handler
     ai_init();
     ai_set_active(0, 1);
     ai_set_difficulty(0, AI_DIFF_MEDIUM);
 
-    // Defender far from handler
-    var defender = player_new(TEAM_AWAY, 0, 14417920, 11141120);  // (220, 170)
+#     Defender far from handler
+    var defender = player_new(TEAM_AWAY, 0, 14417920, 11141120);
     player_set_stats(defender, 7, 5, 5, 5, 7, 7, 5, 5, 5);
 
-    // Handler with ball at (100, 130)
+#     Handler with ball at (100, 130)
     var handler = player_new(TEAM_HOME, 0, 6553600, 8519680);
     var hp: *i64 = handler;
     *(hp + 9) = 1;
@@ -842,12 +842,12 @@ fn test_ai_defense_chases_handler() {
     var g = game_new();
     var gp: *i64 = g;
     *gp = STATE_PLAYING;
-    *(gp + 6) = TEAM_HOME;   // home has possession → away defends
+    *(gp + 6) = TEAM_HOME;
 
     var dp: *i64 = defender;
     var initial_x = *dp;
 
-    // Run AI for 30 frames
+#     Run AI for 30 frames
     var i = 0;
     while (i < 30) {
         ai_update_player(defender, 0, b, g, RIM_LEFT_X, RIM_Y,
@@ -856,13 +856,13 @@ fn test_ai_defense_chases_handler() {
         i = i + 1;
     }
 
-    // Defender should have moved toward handler (leftward, lower x)
+#     Defender should have moved toward handler (leftward, lower x)
     assert(*dp < initial_x, "defensive AI moves toward ball handler");
     return 0;
 }
 
 fn test_ai_off_ball_moves() {
-    // Off-ball teammate should move (not stay frozen)
+#     Off-ball teammate should move (not stay frozen)
     ai_init();
     ai_set_active(1, 1);
 
@@ -870,7 +870,7 @@ fn test_ai_off_ball_moves() {
     var hp: *i64 = handler;
     *(hp + 9) = 1;
 
-    var teammate = player_new(TEAM_HOME, 1, 6553600, 11141120);  // (100, 170)
+    var teammate = player_new(TEAM_HOME, 1, 6553600, 11141120);
     var p3 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
     var p4 = player_new(TEAM_AWAY, 1, 14417920, 11141120);
 
@@ -900,7 +900,7 @@ fn test_ai_off_ball_moves() {
         i = i + 1;
     }
 
-    // Teammate should have moved somewhere
+#     Teammate should have moved somewhere
     var moved_x = *tp - initial_x;
     if (moved_x < 0) { moved_x = 0 - moved_x; }
     var moved_y = *(tp + 1) - initial_y;
@@ -911,7 +911,7 @@ fn test_ai_off_ball_moves() {
 
 fn test_ai_inactive_does_nothing() {
     ai_init();
-    ai_set_active(0, 0);   // not AI controlled
+    ai_set_active(0, 0);
 
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
     var pp: *i64 = p;
@@ -943,30 +943,30 @@ fn test_ai_adjust_prob_difficulty() {
 }
 
 fn test_ai_direction_to() {
-    // Target to the right and below
-    ai_direction_to(0, 0, 655360, 655360);    // (0,0) -> (10, 10)
+#     Target to the right and below
+    ai_direction_to(0, 0, 655360, 655360);
     assert_eq(_ai_move_dx, 1, "direction dx = right");
     assert_eq(_ai_move_dy, 1, "direction dy = down");
 
-    // Target to the left
-    ai_direction_to(655360, 0, 0, 0);         // (10, 0) -> (0, 0)
+#     Target to the left
+    ai_direction_to(655360, 0, 0, 0);
     assert_eq(_ai_move_dx, -1, "direction dx = left");
     assert_eq(_ai_move_dy, 0, "direction dy = none");
     return 0;
 }
 
 fn test_ai_is_player_open() {
-    // Player far from all opponents → open
-    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);      // (100, 130)
-    var p2 = player_new(TEAM_AWAY, 0, 14417920, 8519680);     // (220, 130) — far away
+#     Player far from all opponents -> open
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var p2 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
     var players[2];
     store64(&players, p1);
     store64(&players + 8, p2);
 
     assert_eq(ai_is_player_open(p1, &players, 2), 1, "player open when defenders far");
 
-    // Player close to opponent → not open
-    var p3 = player_new(TEAM_AWAY, 1, 6619136, 8519680);      // (101, 130) — very close
+#     Player close to opponent -> not open
+    var p3 = player_new(TEAM_AWAY, 1, 6619136, 8519680);
     var players2[3];
     store64(&players2, p1);
     store64(&players2 + 8, p2);
@@ -976,13 +976,13 @@ fn test_ai_is_player_open() {
     return 0;
 }
 
-// ========= Inbound =========
+# ========= Inbound =========
 
 fn test_inbound_after_dead_ball() {
     var g = game_new();
     var gp: *i64 = g;
     *gp = STATE_PLAYING;
-    *(gp + 6) = TEAM_HOME;    // home possession
+    *(gp + 6) = TEAM_HOME;
 
     var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
     var p2 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
@@ -1002,7 +1002,7 @@ fn test_inbound_after_dead_ball() {
 fn test_inbound_gives_ball_to_team() {
     var g = game_new();
     var gp: *i64 = g;
-    *(gp + 6) = TEAM_AWAY;    // away receives
+    *(gp + 6) = TEAM_AWAY;
 
     var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
     var p2 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
@@ -1025,7 +1025,7 @@ fn test_inbound_timer_resumes_play() {
     var g = game_new();
     var gp: *i64 = g;
     *gp = STATE_INBOUND;
-    *(gp + 7) = 1;            // 1 frame left
+    *(gp + 7) = 1;
 
     var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
     var players[1];
@@ -1037,20 +1037,20 @@ fn test_inbound_timer_resumes_play() {
     return 0;
 }
 
-// ========= Rebound =========
+# ========= Rebound =========
 
 fn test_rebound_near_rim() {
-    // Ball bouncing near rim, two players nearby — one should get it
+#     Ball bouncing near rim, two players nearby -- one should get it
     var b = ball_new(RIM_RIGHT_X, RIM_Y);
     var bp: *i64 = b;
     *(bp + 6) = BALL_BOUNCE;
-    *(bp + 2) = 131072;       // z = 2.0 (low, grabbable)
+    *(bp + 2) = 131072;
 
     var p1 = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 196608, RIM_Y);
-    player_set_stats(p1, 5, 5, 5, 5, 5, 5, 5, 5, 9);   // high rebound
+    player_set_stats(p1, 5, 5, 5, 5, 5, 5, 5, 5, 9);
 
     var p2 = player_new(TEAM_AWAY, 0, RIM_RIGHT_X + 196608, RIM_Y);
-    player_set_stats(p2, 5, 5, 5, 5, 5, 5, 5, 5, 2);   // low rebound
+    player_set_stats(p2, 5, 5, 5, 5, 5, 5, 5, 5, 2);
 
     var players[2];
     store64(&players, p1);
@@ -1064,8 +1064,8 @@ fn test_rebound_near_rim() {
 }
 
 fn test_rebound_far_from_rim() {
-    // Ball bouncing far from rim — no rebound contest
-    var b = ball_new(6553600, 8519680);    // far from both rims
+#     Ball bouncing far from rim -- no rebound contest
+    var b = ball_new(6553600, 8519680);
     var bp: *i64 = b;
     *(bp + 6) = BALL_BOUNCE;
     *(bp + 2) = 131072;
@@ -1079,13 +1079,13 @@ fn test_rebound_far_from_rim() {
     return 0;
 }
 
-// ========= Clutch =========
+# ========= Clutch =========
 
 fn test_clutch_boosts_stats() {
     var g = game_new();
 
     var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
-    player_set_stats(p1, 5, 5, 5, 5, 5, 5, 5, 8, 5);   // clutch = 8
+    player_set_stats(p1, 5, 5, 5, 5, 5, 5, 5, 8, 5);
     var pp: *i64 = p1;
     var shooting_before = *(pp + 19);
 
@@ -1103,7 +1103,7 @@ fn test_clutch_capped_at_10() {
     var g = game_new();
 
     var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
-    player_set_stats(p1, 10, 5, 10, 5, 10, 10, 5, 10, 5);   // max stats, high clutch
+    player_set_stats(p1, 10, 5, 10, 5, 10, 10, 5, 10, 5);
     var pp: *i64 = p1;
 
     var players[1];
@@ -1116,7 +1116,7 @@ fn test_clutch_capped_at_10() {
     return 0;
 }
 
-// ========= Fouls =========
+# ========= Fouls =========
 
 fn test_foul_changes_possession() {
     var g = game_new();
@@ -1133,7 +1133,7 @@ fn test_foul_changes_possession() {
     var b = ball_new(6553600, 8519680);
     ball_give_to(b, p1);
 
-    // Home commits foul
+#     Home commits foul
     game_call_foul(g, TEAM_HOME, b, &players, 2);
 
     assert_eq(*gp, STATE_FOUL, "foul triggers foul state");
@@ -1144,10 +1144,10 @@ fn test_foul_changes_possession() {
 
 fn test_push_foul_detection() {
     push_init();
-    _push_init_done = 0;   // force re-init
+    _push_init_done = 0;
     push_init();
 
-    // Simulate repeated pushes
+#     Simulate repeated pushes
     var i = 0;
     var foul = 0;
     while (i < PUSH_FOUL_THRESHOLD) {
@@ -1159,13 +1159,13 @@ fn test_push_foul_detection() {
     return 0;
 }
 
-// ========= Auto-switch =========
+# ========= Auto-switch =========
 
 fn test_auto_switch_find_nearest() {
-    var b = ball_new(14417920, 8519680);    // ball at (220, 130)
+    var b = ball_new(14417920, 8519680);
 
-    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);     // (100, 130) — far
-    var p2 = player_new(TEAM_HOME, 1, 13107200, 8519680);    // (200, 130) — near ball
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
+    var p2 = player_new(TEAM_HOME, 1, 13107200, 8519680);
     var p3 = player_new(TEAM_AWAY, 0, 14417920, 8519680);
     var players[3];
     store64(&players, p1);
@@ -1177,7 +1177,7 @@ fn test_auto_switch_find_nearest() {
     return 0;
 }
 
-// ========= PS_REBOUND state =========
+# ========= PS_REBOUND state =========
 
 fn test_rebound_is_committed() {
     assert_eq(player_is_committed(PS_REBOUND), 1, "REBOUND is committed state");
@@ -1193,7 +1193,7 @@ fn test_rebound_timer() {
     return 0;
 }
 
-// ========= Roster =========
+# ========= Roster =========
 
 fn test_roster_team_count() {
     assert_eq(TEAM_COUNT, 8, "8 teams in roster");
@@ -1201,7 +1201,7 @@ fn test_roster_team_count() {
 }
 
 fn test_roster_stat_range() {
-    // All stats should be 1-10
+#     All stats should be 1-10
     var i = 0;
     while (i < TEAM_COUNT * PLAYERS_PER_TEAM) {
         var spd = roster_stat_speed(i);
@@ -1217,7 +1217,7 @@ fn test_roster_stat_range() {
 
 fn test_roster_apply_stats() {
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
-    roster_apply_stats(p, 0, 0);   // Chicago, player 0 (Jordan)
+    roster_apply_stats(p, 0, 0);
     var pp: *i64 = p;
     assert_eq(*(pp + 17), 9, "Jordan speed = 9");
     assert_eq(*(pp + 19), 10, "Jordan shooting = 10");
@@ -1232,13 +1232,13 @@ fn test_roster_team_name() {
 }
 
 fn test_roster_team_total() {
-    var total = roster_team_total(0);   // Chicago
-    // Jordan (9+5+10+8+7+4+6+10+4=63) + Pippen (8+6+7+7+8+7+8+7+7=65) = 128
+    var total = roster_team_total(0);
+#     Jordan (9+5+10+8+7+4+6+10+4=63) + Pippen (8+6+7+7+8+7+8+7+7=65) = 128
     assert_eq(total, 128, "Chicago total = 128");
     return 0;
 }
 
-// ========= Menu =========
+# ========= Menu =========
 
 fn test_menu_init() {
     _menu_init_done = 0;
@@ -1254,10 +1254,10 @@ fn test_menu_select_home() {
     menu_init();
     menu_reset();
 
-    // Navigate down twice, confirm
-    menu_update_select(0, 1, 0, 0);   // cursor to 1
-    menu_update_select(0, 1, 0, 0);   // cursor to 2
-    var done = menu_update_select(0, 0, 1, 0);  // confirm
+#     Navigate down twice, confirm
+    menu_update_select(0, 1, 0, 0);
+    menu_update_select(0, 1, 0, 0);
+    var done = menu_update_select(0, 0, 1, 0);
 
     assert_eq(done, 0, "only home confirmed, not done yet");
     assert_eq(menu_get_home_team(), 2, "home team = 2 (Detroit)");
@@ -1272,10 +1272,10 @@ fn test_menu_select_both() {
     menu_init();
     menu_reset();
 
-    // Select home team 0
+#     Select home team 0
     menu_update_select(0, 0, 1, 0);
 
-    // Select away team (cursor moved to 1 automatically)
+#     Select away team (cursor moved to 1 automatically)
     var done = menu_update_select(0, 0, 1, 0);
 
     assert_eq(done, 1, "both teams confirmed");
@@ -1284,7 +1284,7 @@ fn test_menu_select_both() {
     return 0;
 }
 
-// ========= Announcer =========
+# ========= Announcer =========
 
 fn test_announce_trigger() {
     _announce_init_done = 0;
@@ -1300,7 +1300,7 @@ fn test_announce_priority() {
     announce_init();
     announce("LOW", ANNOUNCE_PRIORITY_LOW, 63);
     announce("HIGH", ANNOUNCE_PRIORITY_HIGH, 48);
-    // High priority should override
+#     High priority should override
     var text = announce_get_text();
     assert_eq(streq(text, "HIGH"), 1, "high priority overrides low");
     return 0;
@@ -1323,27 +1323,27 @@ fn test_announce_expires() {
 fn test_announce_score_fire() {
     _announce_init_done = 0;
     announce_init();
-    announce_score(0, 0, 3);   // 3 consecutive = fire
+    announce_score(0, 0, 3);
     var text = announce_get_text();
     assert_eq(streq(text, "HE'S ON FIRE!"), 1, "3 consecutive triggers fire call");
     return 0;
 }
 
-// ========= Visual effects =========
+# ========= Visual effects =========
 
 fn test_fire_jersey_flash() {
-    // Fire player should use different jersey colors (not just one static)
-    // This tests that the fire color logic works
+#     Fire player should use different jersey colors (not just one static)
+#     This tests that the fire color logic works
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
     var pp: *i64 = p;
-    *(pp + 10) = 1;     // on_fire
-    *(pp + 6) = 0;      // state_timer = 0 → fire_mod = 0 → yellow (48)
-    // Just verify the player can be created on fire — visual test is play-test
+    *(pp + 10) = 1;
+    *(pp + 6) = 0;
+#     Just verify the player can be created on fire -- visual test is play-test
     assert_eq(*(pp + 10), 1, "player marked on fire for visual effect");
     return 0;
 }
 
-// ========= Difficulty =========
+# ========= Difficulty =========
 
 fn test_difficulty_default() {
     _menu_init_done = 0;
@@ -1357,11 +1357,11 @@ fn test_difficulty_select() {
     menu_init();
     menu_reset();
 
-    // Navigate to hard (down twice from medium=1 → 2)
+#     Navigate to hard (down twice from medium=1 -> 2)
     menu_update_difficulty(1, 0);
     assert_eq(menu_get_difficulty(), 2, "difficulty = hard after down");
 
-    // Confirm
+#     Confirm
     var done = menu_update_difficulty(0, 1);
     assert_eq(done, 1, "difficulty confirmed");
     return 0;
@@ -1372,34 +1372,34 @@ fn test_difficulty_wrap() {
     menu_init();
     menu_reset();
 
-    // Go up from easy (0) should wrap to hard (2)
-    // First go to easy
-    menu_update_difficulty(-1, 0);   // medium→easy
+#     Go up from easy (0) should wrap to hard (2)
+#     First go to easy
+    menu_update_difficulty(-1, 0);
     assert_eq(menu_get_difficulty(), 0, "difficulty = easy");
-    menu_update_difficulty(-1, 0);   // easy→hard (wrap)
+    menu_update_difficulty(-1, 0);
     assert_eq(menu_get_difficulty(), 2, "difficulty wraps to hard");
     return 0;
 }
 
-// ========= Bounds / Safety =========
+# ========= Bounds / Safety =========
 
 fn test_roster_oob_clamped() {
-    // Out-of-bounds team_id should be clamped, not crash
+#     Out-of-bounds team_id should be clamped, not crash
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
-    roster_apply_stats(p, 99, 0);    // way out of bounds
+    roster_apply_stats(p, 99, 0);
     var pp: *i64 = p;
-    // Should have gotten team 7 stats (clamped)
+#     Should have gotten team 7 stats (clamped)
     assert(*(pp + 17) >= 1, "OOB roster clamps speed >= 1");
     assert(*(pp + 17) <= 10, "OOB roster clamps speed <= 10");
     return 0;
 }
 
 fn test_score_guard_wrong_state() {
-    // game_on_score should not score when not in PLAYING state
+#     game_on_score should not score when not in PLAYING state
     var g = game_new();
     var gp: *i64 = g;
-    *gp = STATE_TIPOFF;    // not PLAYING
-    *(gp + 4) = 0;         // home score = 0
+    *gp = STATE_TIPOFF;
+    *(gp + 4) = 0;
 
     var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);
     var players[1];
@@ -1407,7 +1407,7 @@ fn test_score_guard_wrong_state() {
 
     var b = ball_new(6553600, 8519680);
     var bp: *i64 = b;
-    *(bp + 9) = p1;        // last_shooter
+    *(bp + 9) = p1;
 
     game_on_score(g, b, 2, &players, 1);
     assert_eq(*(gp + 4), 0, "no score during tipoff state");
@@ -1415,26 +1415,26 @@ fn test_score_guard_wrong_state() {
 }
 
 fn test_dunk_oob_index() {
-    // dunk_update with invalid index should not crash
+#     dunk_update with invalid index should not crash
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
     var b = ball_new(6553600, 8519680);
     dunk_init();
-    dunk_update(p, -1, b);   // negative index
-    dunk_update(p, 99, b);   // way too high
-    // If we get here without crashing, the guard works
+    dunk_update(p, -1, b);
+    dunk_update(p, 99, b);
+#     If we get here without crashing, the guard works
     assert(1 == 1, "dunk OOB index handled safely");
     return 0;
 }
 
 fn test_ball_null_guard() {
-    // ball_update_held with null ball should not crash
+#     ball_update_held with null ball should not crash
     ball_update_held(0);
     assert(1 == 1, "null ball handled safely");
     return 0;
 }
 
 fn test_rebound_committed_skip() {
-    // Players in committed states should be skipped during rebound contest
+#     Players in committed states should be skipped during rebound contest
     var b = ball_new(RIM_RIGHT_X, RIM_Y);
     var bp: *i64 = b;
     *(bp + 6) = BALL_BOUNCE;
@@ -1442,7 +1442,7 @@ fn test_rebound_committed_skip() {
 
     var p1 = player_new(TEAM_HOME, 0, RIM_RIGHT_X - 196608, RIM_Y);
     player_set_stats(p1, 5, 5, 5, 5, 5, 5, 5, 5, 9);
-    // Put player in committed state
+#     Put player in committed state
     player_try_transition(p1, PS_SHOOT);
 
     var players[1];
@@ -1454,7 +1454,7 @@ fn test_rebound_committed_skip() {
     return 0;
 }
 
-// ========= Integration =========
+# ========= Integration =========
 
 fn test_court_render_pixels() {
     render_init();
@@ -1472,7 +1472,7 @@ fn test_full_frame() {
 
     var p = player_new(TEAM_HOME, 0, 6553600, 8519680);
     var pp: *i64 = p;
-    *(pp + 14) = 0;     // no sprite, use fallback
+    *(pp + 14) = 0;
     player_draw(p);
 
     var b = ball_new(10485760, 6553600);
@@ -1483,43 +1483,43 @@ fn test_full_frame() {
     return 0;
 }
 
-// ========= Main =========
+# ========= Main =========
 
 fn main() {
     alloc_init();
 
-    // Physics
+#     Physics
     test_ball_arc();
 
-    // Fire
+#     Fire
     test_fire_activation();
     test_fire_extinguish();
 
-    // Stats
+#     Stats
     test_stat_range();
 
-    // Render
+#     Render
     test_fb_clear();
     test_fb_set_get();
     test_fb_bounds();
     test_draw_hline();
     test_palette();
 
-    // Sprite
+#     Sprite
     test_sprite_blit();
     test_sprite_make_player();
 
-    // Court
+#     Court
     test_court_screen_y();
     test_court_scale();
 
-    // Player
+#     Player
     test_player_committed();
     test_player_timer_expiry();
     test_player_movement();
     test_player_court_bounds();
 
-    // Ball
+#     Ball
     test_ball_new();
     test_ball_launch();
     test_ball_gravity();
@@ -1527,27 +1527,27 @@ fn main() {
     test_ball_give_to();
     test_ball_held_follows_player();
 
-    // Collision
+#     Collision
     test_dist_sq();
     test_ball_player_pickup();
     test_ball_player_too_far();
 
-    // Shooting
+#     Shooting
     test_shoot_rng_determinism();
     test_compute_shot();
     test_three_pointer();
 
-    // Game state
+#     Game state
     test_game_new();
     test_game_tipoff_to_playing();
     test_game_clock_seconds();
     test_game_turnover();
 
-    // HUD
+#     HUD
     test_hud_digit();
     test_hud_renders();
 
-    // Dunk
+#     Dunk
     test_can_dunk_in_range();
     test_cant_dunk_too_far();
     test_cant_dunk_low_stat();
@@ -1555,31 +1555,31 @@ fn main() {
     test_dunk_type_tomahawk();
     test_dunk_type_name();
 
-    // Goal tending
+#     Goal tending
     test_goal_tending_descending_near_rim();
     test_no_goal_tending_ascending();
     test_no_goal_tending_far();
 
-    // Alley-oop
+#     Alley-oop
     test_alley_oop_conditions();
     test_alley_oop_no_ball_flight();
 
-    // Steal
+#     Steal
     test_steal_close();
     test_steal_different_team_only();
 
-    // Block
+#     Block
     test_block_requires_shoot_state();
 
-    // Interception
+#     Interception
     test_intercept_close();
     test_intercept_same_team_ignored();
 
-    // Turbo
+#     Turbo
     test_turbo_drain();
     test_turbo_fire_infinite();
 
-    // AI
+#     AI
     test_ai_init_and_active();
     test_ai_difficulty_setting();
     test_ai_find_nearest_opponent();
@@ -1592,64 +1592,64 @@ fn main() {
     test_ai_direction_to();
     test_ai_is_player_open();
 
-    // Inbound
+#     Inbound
     test_inbound_after_dead_ball();
     test_inbound_gives_ball_to_team();
     test_inbound_timer_resumes_play();
 
-    // Rebound
+#     Rebound
     test_rebound_near_rim();
     test_rebound_far_from_rim();
 
-    // Clutch
+#     Clutch
     test_clutch_boosts_stats();
     test_clutch_capped_at_10();
 
-    // Fouls
+#     Fouls
     test_foul_changes_possession();
     test_push_foul_detection();
 
-    // Auto-switch
+#     Auto-switch
     test_auto_switch_find_nearest();
 
-    // PS_REBOUND
+#     PS_REBOUND
     test_rebound_is_committed();
     test_rebound_timer();
 
-    // Roster
+#     Roster
     test_roster_team_count();
     test_roster_stat_range();
     test_roster_apply_stats();
     test_roster_team_name();
     test_roster_team_total();
 
-    // Menu
+#     Menu
     test_menu_init();
     test_menu_select_home();
     test_menu_select_both();
 
-    // Announcer
+#     Announcer
     test_announce_trigger();
     test_announce_priority();
     test_announce_expires();
     test_announce_score_fire();
 
-    // Visual effects
+#     Visual effects
     test_fire_jersey_flash();
 
-    // Difficulty
+#     Difficulty
     test_difficulty_default();
     test_difficulty_select();
     test_difficulty_wrap();
 
-    // Bounds / Safety
+#     Bounds / Safety
     test_roster_oob_clamped();
     test_score_guard_wrong_state();
     test_dunk_oob_index();
     test_ball_null_guard();
     test_rebound_committed_skip();
 
-    // Integration
+#     Integration
     test_court_render_pixels();
     test_full_frame();
 
