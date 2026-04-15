@@ -1,6 +1,6 @@
 # cyrius-nba-jam Development Roadmap
 
-> **Status**: Scaffolded | **Last Updated**: 2026-04-14
+> **Status**: v0.1.0 implemented | **Last Updated**: 2026-04-14
 
 ---
 
@@ -10,14 +10,18 @@ Get something on screen. Prove the sprite rendering pipeline.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | types.cyr — player stats, game constants | Not started | From HEY.DOC stat model |
-| 2 | render.cyr — framebuffer, pixel ops | Not started | Same pattern as cyrius-doom |
-| 3 | sprite.cyr — sprite atlas loading, scaled blit | Not started | Key primitive: blit with transparency + scaling |
-| 4 | court.cyr — court background with perspective | Not started | Static court, perspective grid |
-| 5 | player.cyr — single player entity, basic movement | Not started | Keyboard input, acceleration |
-| 6 | main.cyr — game loop, frame timing | Not started | 60fps target |
+| 1 | types.cyr — player stats, game constants | Done | 9 enums: Stat, GameState, PlayerState, DunkType, Team, Screen, Court, Fire |
+| 2 | render.cyr — framebuffer, pixel ops, PPM output | Done | 292 lines. 64-color palette, draw primitives, Bresenham line, PPM screenshot |
+| 3 | sprite.cyr — sprite blit, scaled blit, placeholders | Done | 233 lines. Transparency, clipping, fixed-point scaling, placeholder player/ball generation |
+| 4 | court.cyr — court background with perspective | Done | 349 lines. Perspective sidelines, paint, three-point arcs, rims, wood floor planks |
+| 5 | player.cyr — player entity, movement, state machine | Done | 365 lines. 26-field Player struct, committed states, acceleration, turbo, facing, perspective draw |
+| 6 | input.cyr — keyboard input via termios raw mode | Done | 154 lines. Non-blocking read, WASD/arrows, action buttons, escape sequences |
+| 7 | main.cyr — game loop, frame timing, 4 players | Done | 271 lines. Init, update, depth-sorted render, nanosleep timing, --ppm mode |
 
-**Exit criteria**: A player sprite moves around a rendered court.
+**Lines**: 1749 source + 399 test = 2148 total across 7 modules + test suite.
+**Tests**: 24 assertions across physics, render, sprite, court, player state machine, player movement.
+
+**Exit criteria**: A player sprite moves around a rendered court. ✓ (with --ppm screenshot verification)
 
 ## v0.2.0 — Ball Physics and Shooting
 

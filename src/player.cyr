@@ -1,0 +1,365 @@
+// cyrius-nba-jam — player.cyr
+// Player entity: position, velocity, state machine, stats.
+// Fixed-point 16.16 coordinates in game space.
+//
+// Original: PLYR.ASM (~12,000 lines of TMS34010)
+// We reimplement the design, not the assembly.
+//
+// Player struct layout:
+//   x, y          — game-space position (fixed-point 16.16)
+//   vx, vy        — velocity (fixed-point 16.16)
+//   state         — PlayerState enum
+//   prev_state    — for transition detection
+//   state_timer   — frames remaining in committed state
+//   team          — Team enum (HOME=0, AWAY=1)
+//   index         — player index within team (0 or 1)
+//   has_ball      — 1 if this player holds the ball
+//   on_fire       — 1 if "HE'S ON FIRE"
+//   turbo         — turbo meter (0-100)
+//   consecutive   — consecutive baskets (for fire activation)
+//   stats[9]      — stat array (indexed by Stat enum)
+//   sprite_data   — pointer to placeholder sprite pixel data
+//   sprite_w      — sprite width
+//   sprite_h      — sprite height
+
+// --- Movement constants (fixed-point 16.16) ---
+
+var PLAYER_ACCEL = 3277;           // 0.05 per frame
+var PLAYER_DECEL = 6554;           // 0.1 per frame (friction)
+var PLAYER_MAX_SPEED = 19661;      // 0.3 per frame (base, modified by Speed stat)
+var PLAYER_TURBO_MULT = 26214;     // 0.4 (turbo max speed)
+var TURBO_DRAIN = 1;               // per frame while turbo active
+var TURBO_RECHARGE = 1;            // per frame while turbo inactive
+var TURBO_MAX = 100;
+
+// Committed state durations (frames at 60fps)
+var SHOOT_FRAMES = 30;     // 0.5s
+var DUNK_FRAMES = 45;      // 0.75s
+var PASS_FRAMES = 15;      // 0.25s
+var STEAL_FRAMES = 12;     // 0.2s
+var BLOCK_FRAMES = 20;     // 0.33s
+var FALL_FRAMES = 30;      // 0.5s
+
+// Player sprite dimensions (placeholder)
+var PLAYER_SPRITE_W = 16;
+var PLAYER_SPRITE_H = 24;
+
+// --- Player struct ---
+// 23 fields (stats is 9 slots + 3 sprite fields = 23 total before stats,
+// plus 9 stats = 32 i64 values → 256 bytes)
+
+struct Player {
+    x; y;                   // 0, 1
+    vx; vy;                 // 2, 3
+    state; prev_state;      // 4, 5
+    state_timer;            // 6
+    team; index;            // 7, 8
+    has_ball;               // 9
+    on_fire;                // 10
+    turbo;                  // 11
+    consecutive;            // 12
+    facing;                 // 13: direction 0-7 (8 directions)
+    sprite_data;            // 14
+    sprite_w; sprite_h;     // 15, 16
+    stat_speed;             // 17
+    stat_power;             // 18
+    stat_shooting;          // 19
+    stat_dunking;           // 20
+    stat_stealing;          // 21
+    stat_blocking;          // 22
+    stat_pass;              // 23
+    stat_clutch;            // 24
+    stat_rebound;           // 25
+}
+
+fn player_new(team, index, x, y) {
+    var p = Player {
+        x, y,
+        0, 0,               // vx, vy
+        PS_IDLE, PS_IDLE,    // state, prev_state
+        0,                   // state_timer
+        team, index,
+        0,                   // has_ball
+        0,                   // on_fire
+        TURBO_MAX,           // turbo (start full)
+        0,                   // consecutive
+        0,                   // facing (right)
+        0,                   // sprite_data (set later)
+        PLAYER_SPRITE_W, PLAYER_SPRITE_H,
+        5, 5, 5, 5, 5, 5, 5, 5, 5   // default stats: all 5
+    };
+    return &p;
+}
+
+fn player_set_stats(p, spd, pwr, sht, dnk, stl, blk, pas, clt, reb) {
+    var ptr: *i64 = p;
+    *(ptr + 17) = spd;
+    *(ptr + 18) = pwr;
+    *(ptr + 19) = sht;
+    *(ptr + 20) = dnk;
+    *(ptr + 21) = stl;
+    *(ptr + 22) = blk;
+    *(ptr + 23) = pas;
+    *(ptr + 24) = clt;
+    *(ptr + 25) = reb;
+}
+
+// --- State machine ---
+
+fn player_is_committed(state) {
+    if (state == PS_SHOOT) { return 1; }
+    if (state == PS_DUNK) { return 1; }
+    if (state == PS_PASS) { return 1; }
+    if (state == PS_STEAL) { return 1; }
+    if (state == PS_BLOCK) { return 1; }
+    if (state == PS_FALL) { return 1; }
+    return 0;
+}
+
+fn player_try_transition(p, new_state) {
+    var ptr: *i64 = p;
+    var state = *(ptr + 4);
+    var timer = *(ptr + 6);
+
+    // Reject during committed states with active timer
+    if (player_is_committed(state) == 1) {
+        if (timer > 0) {
+            return state;
+        }
+    }
+
+    // Save previous state
+    *(ptr + 5) = state;
+
+    // Set new state and timer
+    *(ptr + 4) = new_state;
+
+    if (new_state == PS_SHOOT) { *(ptr + 6) = SHOOT_FRAMES; }
+    elif (new_state == PS_DUNK) { *(ptr + 6) = DUNK_FRAMES; }
+    elif (new_state == PS_PASS) { *(ptr + 6) = PASS_FRAMES; }
+    elif (new_state == PS_STEAL) { *(ptr + 6) = STEAL_FRAMES; }
+    elif (new_state == PS_BLOCK) { *(ptr + 6) = BLOCK_FRAMES; }
+    elif (new_state == PS_FALL) { *(ptr + 6) = FALL_FRAMES; }
+    else { *(ptr + 6) = 0; }
+
+    return new_state;
+}
+
+fn player_tick_state(p) {
+    var ptr: *i64 = p;
+    var timer = *(ptr + 6);
+
+    if (timer > 0) {
+        timer = timer - 1;
+        *(ptr + 6) = timer;
+
+        if (timer == 0) {
+            // Committed state expired → return to idle
+            *(ptr + 5) = *(ptr + 4);   // prev = current
+            *(ptr + 4) = PS_IDLE;
+        }
+    }
+}
+
+// --- Movement ---
+
+fn asr_player(v, n) {
+    if (v < 0) { return 0 - ((0 - v) >> n); }
+    return v >> n;
+}
+
+fn player_apply_input(p, dx, dy, use_turbo) {
+    var ptr: *i64 = p;
+    var state = *(ptr + 4);
+
+    // Can't move during committed states
+    if (player_is_committed(state) == 1) {
+        if (*(ptr + 6) > 0) { return; }
+    }
+
+    var vx = *(ptr + 2);
+    var vy = *(ptr + 3);
+    var speed_stat = *(ptr + 17);
+
+    // Max speed scales with Speed stat (1-10)
+    // max = base * (5 + stat) / 10
+    var max_speed = PLAYER_MAX_SPEED * (5 + speed_stat) / 10;
+    if (use_turbo == 1) {
+        var turbo = *(ptr + 11);
+        if (turbo > 0) {
+            max_speed = PLAYER_TURBO_MULT * (5 + speed_stat) / 10;
+            turbo = turbo - TURBO_DRAIN;
+            if (turbo < 0) { turbo = 0; }
+            *(ptr + 11) = turbo;
+        }
+    }
+
+    // Apply acceleration toward input direction
+    if (dx != 0) {
+        if (dx > 0) {
+            vx = vx + PLAYER_ACCEL;
+            if (vx > max_speed) { vx = max_speed; }
+        } else {
+            vx = vx - PLAYER_ACCEL;
+            if (vx < (0 - max_speed)) { vx = 0 - max_speed; }
+        }
+    } else {
+        // Decelerate toward zero
+        if (vx > 0) {
+            vx = vx - PLAYER_DECEL;
+            if (vx < 0) { vx = 0; }
+        } elif (vx < 0) {
+            vx = vx + PLAYER_DECEL;
+            if (vx > 0) { vx = 0; }
+        }
+    }
+
+    if (dy != 0) {
+        if (dy > 0) {
+            vy = vy + PLAYER_ACCEL;
+            if (vy > max_speed) { vy = max_speed; }
+        } else {
+            vy = vy - PLAYER_ACCEL;
+            if (vy < (0 - max_speed)) { vy = 0 - max_speed; }
+        }
+    } else {
+        if (vy > 0) {
+            vy = vy - PLAYER_DECEL;
+            if (vy < 0) { vy = 0; }
+        } elif (vy < 0) {
+            vy = vy + PLAYER_DECEL;
+            if (vy > 0) { vy = 0; }
+        }
+    }
+
+    *(ptr + 2) = vx;
+    *(ptr + 3) = vy;
+
+    // Update facing direction based on input
+    if (dx != 0) {
+        if (dy != 0) {
+            // Diagonal
+            if (dx > 0) {
+                if (dy < 0) { *(ptr + 13) = 1; }     // up-right
+                else { *(ptr + 13) = 3; }              // down-right
+            } else {
+                if (dy < 0) { *(ptr + 13) = 7; }     // up-left
+                else { *(ptr + 13) = 5; }              // down-left
+            }
+        } else {
+            if (dx > 0) { *(ptr + 13) = 2; }          // right
+            else { *(ptr + 13) = 6; }                  // left
+        }
+    } elif (dy != 0) {
+        if (dy < 0) { *(ptr + 13) = 0; }              // up
+        else { *(ptr + 13) = 4; }                      // down
+    }
+
+    // Transition to RUN if moving
+    if (vx != 0) {
+        if (state == PS_IDLE) { player_try_transition(p, PS_RUN); }
+    } elif (vy != 0) {
+        if (state == PS_IDLE) { player_try_transition(p, PS_RUN); }
+    }
+}
+
+fn player_update(p) {
+    var ptr: *i64 = p;
+
+    // Apply velocity to position
+    var x = *ptr;
+    var y = *(ptr + 1);
+    var vx = *(ptr + 2);
+    var vy = *(ptr + 3);
+
+    x = x + vx;
+    y = y + vy;
+
+    // Clamp to court bounds
+    if (x < COURT_LEFT) { x = COURT_LEFT; vx = 0; }
+    if (x > COURT_RIGHT) { x = COURT_RIGHT; vx = 0; }
+    if (y < COURT_FAR) { y = COURT_FAR; vy = 0; }
+    if (y > COURT_NEAR) { y = COURT_NEAR; vy = 0; }
+
+    *ptr = x;
+    *(ptr + 1) = y;
+    *(ptr + 2) = vx;
+    *(ptr + 3) = vy;
+
+    // Tick state timer
+    player_tick_state(p);
+
+    // Recharge turbo when not using it
+    var turbo = *(ptr + 11);
+    if (turbo < TURBO_MAX) {
+        turbo = turbo + TURBO_RECHARGE;
+        if (turbo > TURBO_MAX) { turbo = TURBO_MAX; }
+        *(ptr + 11) = turbo;
+    }
+
+    // Return to idle if stopped moving
+    var state = *(ptr + 4);
+    if (state == PS_RUN) {
+        if (vx == 0) {
+            if (vy == 0) {
+                player_try_transition(p, PS_IDLE);
+            }
+        }
+    }
+}
+
+// --- Rendering ---
+
+fn player_draw(p) {
+    var ptr: *i64 = p;
+    var x = *ptr;
+    var y = *(ptr + 1);
+    var team = *(ptr + 7);
+
+    // Convert game coords to screen coords
+    var screen_x = court_game_to_screen_x(x, y);
+    var screen_y = court_game_to_screen_y(y);
+
+    // Get perspective scale
+    var scale = court_scale_at_y(y);
+
+    // Scaled sprite dimensions
+    var draw_w = asr_player(PLAYER_SPRITE_W * scale, 16);
+    var draw_h = asr_player(PLAYER_SPRITE_H * scale, 16);
+    if (draw_w < 4) { draw_w = 4; }
+    if (draw_h < 6) { draw_h = 6; }
+
+    // Center sprite on position
+    var draw_x = screen_x - draw_w / 2;
+    var draw_y = screen_y - draw_h;
+
+    // Draw shadow first
+    sprite_draw_shadow(draw_x, screen_y, draw_w);
+
+    // Draw placeholder sprite (colored rectangle for now)
+    var sprite_data = *(ptr + 14);
+    if (sprite_data != 0) {
+        var spr = Sprite { sprite_data, PLAYER_SPRITE_W, PLAYER_SPRITE_H };
+        sprite_blit_scaled(&spr, draw_x, draw_y, draw_w, draw_h);
+    } else {
+        // Fallback: draw colored rectangle
+        var jersey_color = 16;   // home blue
+        if (team == TEAM_AWAY) {
+            jersey_color = 24;   // away red
+        }
+        // Fire effect: alternate jersey color
+        var on_fire = *(ptr + 10);
+        if (on_fire == 1) {
+            jersey_color = 48;   // fire yellow
+        }
+
+        // Head
+        var head_h = draw_h / 4;
+        var head_w = draw_w / 2;
+        var head_x = draw_x + (draw_w - head_w) / 2;
+        draw_rect(head_x, draw_y, head_w, head_h, 20);  // skin tone
+
+        // Body
+        draw_rect(draw_x, draw_y + head_h, draw_w, draw_h - head_h, jersey_color);
+    }
+}

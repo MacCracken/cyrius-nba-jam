@@ -1,0 +1,292 @@
+// cyrius-nba-jam — render.cyr
+// Framebuffer: 320x240, 8-bit palette indices.
+// Software rendering — no GPU, no external deps.
+// Palette: NBA Jam court colors mapped to indices 0-63.
+//
+// Output: PPM screenshot (--ppm flag) or raw framebuffer for display bridge.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/io.cyr"
+
+// --- Palette ---
+// 64 colors: court browns, player skin tones, jersey colors, UI colors.
+// Each entry is 3 bytes (R, G, B) packed into the palette buffer.
+// Index 0 = black (background). Index 63 = white.
+
+var _palette = 0;        // 64 * 3 = 192 bytes (R, G, B per entry)
+var _fb = 0;             // framebuffer: SCREEN_W * SCREEN_H bytes (palette indices)
+var _rgb = 0;            // RGB buffer: SCREEN_W * SCREEN_H * 3 bytes (for PPM output)
+var _fb_ready = 0;
+
+// --- Init ---
+
+fn render_init() {
+    if (_fb_ready == 1) { return; }
+    _fb = alloc(SCREEN_W * SCREEN_H);
+    _rgb = alloc(SCREEN_W * SCREEN_H * 3);
+    _palette = alloc(192);
+    render_init_palette();
+    _fb_ready = 1;
+}
+
+fn render_init_palette() {
+    // NBA Jam court palette
+    // 0: black (background/transparent)
+    pal_set(0, 0, 0, 0);
+
+    // 1-7: court wood tones (light to dark)
+    pal_set(1, 205, 170, 125);    // light wood
+    pal_set(2, 185, 150, 105);    // mid wood
+    pal_set(3, 165, 130, 90);     // court main
+    pal_set(4, 145, 115, 75);     // dark wood
+    pal_set(5, 125, 100, 65);     // darker
+    pal_set(6, 100, 80, 50);      // shadow
+    pal_set(7, 75, 60, 40);       // deep shadow
+
+    // 8-11: court lines (white, red, blue)
+    pal_set(8, 255, 255, 255);    // white lines
+    pal_set(9, 200, 30, 30);      // red (three-point, paint)
+    pal_set(10, 30, 60, 180);     // blue (center circle)
+    pal_set(11, 255, 200, 0);     // yellow (highlights)
+
+    // 12-15: rim and backboard
+    pal_set(12, 255, 100, 0);     // rim orange
+    pal_set(13, 200, 200, 200);   // backboard gray
+    pal_set(14, 180, 180, 180);   // backboard shadow
+    pal_set(15, 255, 255, 255);   // net white
+
+    // 16-23: team 1 jersey (home — default blue)
+    pal_set(16, 20, 50, 180);     // jersey primary
+    pal_set(17, 15, 40, 150);     // jersey shadow
+    pal_set(18, 30, 70, 210);     // jersey highlight
+    pal_set(19, 255, 255, 255);   // jersey number/trim
+    pal_set(20, 200, 160, 120);   // skin tone light
+    pal_set(21, 170, 130, 90);    // skin tone mid
+    pal_set(22, 130, 95, 65);     // skin tone dark
+    pal_set(23, 60, 40, 25);      // hair/shoes
+
+    // 24-31: team 2 jersey (away — default red)
+    pal_set(24, 180, 20, 20);     // jersey primary
+    pal_set(25, 150, 15, 15);     // jersey shadow
+    pal_set(26, 220, 40, 40);     // jersey highlight
+    pal_set(27, 255, 255, 255);   // jersey number/trim
+    pal_set(28, 200, 160, 120);   // skin tone light
+    pal_set(29, 170, 130, 90);    // skin tone mid
+    pal_set(30, 130, 95, 65);     // skin tone dark
+    pal_set(31, 60, 40, 25);      // hair/shoes
+
+    // 32-39: ball
+    pal_set(32, 200, 100, 30);    // ball orange
+    pal_set(33, 170, 80, 20);     // ball shadow
+    pal_set(34, 230, 130, 50);    // ball highlight
+    pal_set(35, 40, 30, 20);      // ball seams
+
+    // 40-47: HUD / UI
+    pal_set(40, 255, 255, 255);   // text white
+    pal_set(41, 255, 255, 0);     // score yellow
+    pal_set(42, 255, 0, 0);       // timer red
+    pal_set(43, 0, 255, 0);       // turbo green
+    pal_set(44, 255, 128, 0);     // fire orange
+    pal_set(45, 200, 200, 200);   // UI border
+    pal_set(46, 30, 30, 30);      // UI background
+    pal_set(47, 100, 100, 100);   // UI shadow
+
+    // 48-55: fire effect
+    pal_set(48, 255, 200, 0);     // fire yellow
+    pal_set(49, 255, 150, 0);     // fire orange
+    pal_set(50, 255, 80, 0);      // fire red-orange
+    pal_set(51, 200, 30, 0);      // fire dark red
+    pal_set(52, 255, 255, 100);   // fire bright
+    pal_set(53, 255, 220, 50);    // fire mid
+    pal_set(54, 200, 100, 0);     // fire dim
+    pal_set(55, 100, 40, 0);      // fire ember
+
+    // 56-63: shadows and misc
+    pal_set(56, 40, 30, 20);      // shadow dark
+    pal_set(57, 60, 50, 35);      // shadow mid
+    pal_set(58, 80, 65, 45);      // shadow light
+    pal_set(59, 0, 0, 0);         // pure black
+    pal_set(60, 128, 128, 128);   // gray
+    pal_set(61, 64, 64, 64);      // dark gray
+    pal_set(62, 192, 192, 192);   // light gray
+    pal_set(63, 255, 255, 255);   // pure white
+}
+
+fn pal_set(idx, r, g, b) {
+    var off = idx * 3;
+    store8(_palette + off, r);
+    store8(_palette + off + 1, g);
+    store8(_palette + off + 2, b);
+}
+
+fn pal_get_r(idx) { return load8(_palette + idx * 3); }
+fn pal_get_g(idx) { return load8(_palette + idx * 3 + 1); }
+fn pal_get_b(idx) { return load8(_palette + idx * 3 + 2); }
+
+// --- Framebuffer operations ---
+
+fn fb_clear(color) {
+    memset(_fb, color, SCREEN_W * SCREEN_H);
+}
+
+fn fb_get(x, y) {
+    if (x < 0) { return 0; }
+    if (x >= SCREEN_W) { return 0; }
+    if (y < 0) { return 0; }
+    if (y >= SCREEN_H) { return 0; }
+    return load8(_fb + y * SCREEN_W + x);
+}
+
+fn fb_set(x, y, color) {
+    if (x < 0) { return; }
+    if (x >= SCREEN_W) { return; }
+    if (y < 0) { return; }
+    if (y >= SCREEN_H) { return; }
+    store8(_fb + y * SCREEN_W + x, color);
+}
+
+fn fb_ptr() {
+    return _fb;
+}
+
+// --- Drawing primitives ---
+
+fn draw_hline(x1, x2, y, color) {
+    if (y < 0) { return; }
+    if (y >= SCREEN_H) { return; }
+    if (x1 < 0) { x1 = 0; }
+    if (x2 >= SCREEN_W) { x2 = SCREEN_W - 1; }
+    if (x1 > x2) { return; }
+    var row = _fb + y * SCREEN_W;
+    var x = x1;
+    while (x <= x2) {
+        store8(row + x, color);
+        x = x + 1;
+    }
+}
+
+fn draw_vline(x, y1, y2, color) {
+    if (x < 0) { return; }
+    if (x >= SCREEN_W) { return; }
+    if (y1 < 0) { y1 = 0; }
+    if (y2 >= SCREEN_H) { y2 = SCREEN_H - 1; }
+    if (y1 > y2) { return; }
+    var y = y1;
+    while (y <= y2) {
+        store8(_fb + y * SCREEN_W + x, color);
+        y = y + 1;
+    }
+}
+
+fn draw_rect(x, y, w, h, color) {
+    var row = 0;
+    while (row < h) {
+        draw_hline(x, x + w - 1, y + row, color);
+        row = row + 1;
+    }
+}
+
+fn draw_rect_outline(x, y, w, h, color) {
+    draw_hline(x, x + w - 1, y, color);
+    draw_hline(x, x + w - 1, y + h - 1, color);
+    draw_vline(x, y, y + h - 1, color);
+    draw_vline(x + w - 1, y, y + h - 1, color);
+}
+
+// Bresenham line (general)
+fn draw_line(x0, y0, x1, y1, color) {
+    var dx = x1 - x0;
+    var dy = y1 - y0;
+    if (dx < 0) { dx = 0 - dx; }
+    if (dy < 0) { dy = 0 - dy; }
+    var sx = 1;
+    if (x0 > x1) { sx = 0 - 1; }
+    var sy = 1;
+    if (y0 > y1) { sy = 0 - 1; }
+    var err = dx - dy;
+
+    while (1 == 1) {
+        fb_set(x0, y0, color);
+        if (x0 == x1) {
+            if (y0 == y1) { return; }
+        }
+        var e2 = 2 * err;
+        if (e2 > (0 - dy)) {
+            err = err - dy;
+            x0 = x0 + sx;
+        }
+        if (e2 < dx) {
+            err = err + dx;
+            y0 = y0 + sy;
+        }
+    }
+}
+
+// --- PPM output ---
+
+fn render_to_rgb() {
+    // Convert palette framebuffer to RGB
+    var i = 0;
+    var total = SCREEN_W * SCREEN_H;
+    while (i < total) {
+        var idx = load8(_fb + i);
+        var off = i * 3;
+        store8(_rgb + off, pal_get_r(idx));
+        store8(_rgb + off + 1, pal_get_g(idx));
+        store8(_rgb + off + 2, pal_get_b(idx));
+        i = i + 1;
+    }
+}
+
+fn render_write_ppm(path) {
+    render_to_rgb();
+
+    // PPM header: "P6\n320 240\n255\n"
+    var header_buf[64];
+    var hlen = 0;
+
+    // Build header manually
+    store8(&header_buf, 80);       // 'P'
+    store8(&header_buf + 1, 54);   // '6'
+    store8(&header_buf + 2, 10);   // '\n'
+    store8(&header_buf + 3, 51);   // '3'
+    store8(&header_buf + 4, 50);   // '2'
+    store8(&header_buf + 5, 48);   // '0'
+    store8(&header_buf + 6, 32);   // ' '
+    store8(&header_buf + 7, 50);   // '2'
+    store8(&header_buf + 8, 52);   // '4'
+    store8(&header_buf + 9, 48);   // '0'
+    store8(&header_buf + 10, 10);  // '\n'
+    store8(&header_buf + 11, 50);  // '2'
+    store8(&header_buf + 12, 53);  // '5'
+    store8(&header_buf + 13, 53);  // '5'
+    store8(&header_buf + 14, 10);  // '\n'
+    hlen = 15;
+
+    var fd = file_open(path, 577, 420);  // O_WRONLY|O_CREAT|O_TRUNC, 0644
+    if (fd < 0) {
+        println("render: failed to open PPM file");
+        return;
+    }
+    file_write(fd, &header_buf, hlen);
+    file_write(fd, _rgb, SCREEN_W * SCREEN_H * 3);
+    file_close(fd);
+}
+
+// --- Stats ---
+
+fn render_pixel_count() {
+    // Count non-black pixels
+    var count = 0;
+    var i = 0;
+    var total = SCREEN_W * SCREEN_H;
+    while (i < total) {
+        if (load8(_fb + i) != 0) {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    return count;
+}

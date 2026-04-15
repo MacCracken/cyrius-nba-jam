@@ -6,6 +6,7 @@ license = "GPL-3.0-only"
 repository = "https://github.com/MacCracken/cyrius-nba-jam"
 
 [deps]
+stdlib = ["string", "fmt", "alloc", "io", "args", "assert"]
 # sakshi — structured logging (when available)
 
 [build]

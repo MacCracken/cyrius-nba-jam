@@ -3,23 +3,267 @@
 //
 // Reference: historicalsource/nba-jam (TMS34010 assembly)
 // All code is new Cyrius — the original is design reference only.
+//
+// v0.1.0: Court rendering + player movement on court.
+// Exit criteria: A player sprite moves around a rendered court.
 
-// Game loop:
-//   1. Input
-//   2. Update (physics, AI, state machine)
-//   3. Render (court → shadows → players → ball → HUD)
-//   4. Present (write framebuffer to screen)
-//   5. Wait for frame timing (16.67ms target for 60fps)
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/io.cyr"
+include "lib/args.cyr"
+
+include "src/types.cyr"
+include "src/render.cyr"
+include "src/sprite.cyr"
+include "src/court.cyr"
+include "src/player.cyr"
+include "src/input.cyr"
+
+// --- Game state ---
+
+var _players[4];             // 4 player pointers (2 per team)
+var _player_count = 0;
+var _active_player = 0;      // index of human-controlled player
+var _frame_count = 0;
+var _running = 0;
+var _ppm_mode = 0;           // --ppm flag: render one frame and save screenshot
+
+// Player sprite pixel buffers (allocated once)
+var _sprite_buf_home1 = 0;
+var _sprite_buf_home2 = 0;
+var _sprite_buf_away1 = 0;
+var _sprite_buf_away2 = 0;
+
+// --- Init ---
+
+fn game_init() {
+    alloc_init();
+    render_init();
+
+    // Allocate placeholder sprite buffers
+    var sprite_size = PLAYER_SPRITE_W * PLAYER_SPRITE_H;
+    _sprite_buf_home1 = alloc(sprite_size);
+    _sprite_buf_home2 = alloc(sprite_size);
+    _sprite_buf_away1 = alloc(sprite_size);
+    _sprite_buf_away2 = alloc(sprite_size);
+
+    // Generate placeholder player sprites
+    sprite_make_player(_sprite_buf_home1, PLAYER_SPRITE_W, PLAYER_SPRITE_H, 16, 20);
+    sprite_make_player(_sprite_buf_home2, PLAYER_SPRITE_W, PLAYER_SPRITE_H, 17, 21);
+    sprite_make_player(_sprite_buf_away1, PLAYER_SPRITE_W, PLAYER_SPRITE_H, 24, 20);
+    sprite_make_player(_sprite_buf_away2, PLAYER_SPRITE_W, PLAYER_SPRITE_H, 25, 21);
+
+    // Create 4 players at starting positions
+    // Home team (left side)
+    var p1 = player_new(TEAM_HOME, 0, 6553600, 8519680);    // (100.0, 130.0)
+    var p1_ptr: *i64 = p1;
+    *(p1_ptr + 14) = _sprite_buf_home1;
+    player_set_stats(p1, 7, 5, 8, 6, 4, 5, 6, 7, 5);
+
+    var p2 = player_new(TEAM_HOME, 1, 6553600, 11141120);   // (100.0, 170.0)
+    var p2_ptr: *i64 = p2;
+    *(p2_ptr + 14) = _sprite_buf_home2;
+    player_set_stats(p2, 5, 7, 5, 8, 3, 7, 5, 6, 7);
+
+    // Away team (right side)
+    var p3 = player_new(TEAM_AWAY, 0, 14417920, 8519680);   // (220.0, 130.0)
+    var p3_ptr: *i64 = p3;
+    *(p3_ptr + 14) = _sprite_buf_away1;
+    player_set_stats(p3, 8, 4, 7, 7, 6, 4, 7, 5, 4);
+
+    var p4 = player_new(TEAM_AWAY, 1, 14417920, 11141120);  // (220.0, 170.0)
+    var p4_ptr: *i64 = p4;
+    *(p4_ptr + 14) = _sprite_buf_away2;
+    player_set_stats(p4, 6, 8, 6, 5, 5, 8, 4, 8, 6);
+
+    store64(&_players, p1);
+    store64(&_players + 8, p2);
+    store64(&_players + 16, p3);
+    store64(&_players + 24, p4);
+    _player_count = 4;
+
+    _active_player = 0;
+    _frame_count = 0;
+    _running = 1;
+}
+
+// --- Update ---
+
+fn game_update() {
+    // Get active player
+    var active = load64(&_players + _active_player * 8);
+
+    // Apply input to active player
+    player_apply_input(active, input_dx(), input_dy(), input_turbo());
+
+    // Update all players
+    var i = 0;
+    while (i < _player_count) {
+        var p = load64(&_players + i * 8);
+        player_update(p);
+        i = i + 1;
+    }
+
+    _frame_count = _frame_count + 1;
+}
+
+// --- Render ---
+
+fn game_render() {
+    // Clear to black
+    fb_clear(0);
+
+    // Draw court (background layer)
+    court_draw();
+
+    // Sort players by Y for correct draw order (painter's algorithm)
+    // Simple bubble sort on 4 elements
+    var sorted[4];
+    var i = 0;
+    while (i < _player_count) {
+        store64(&sorted + i * 8, load64(&_players + i * 8));
+        i = i + 1;
+    }
+
+    // Sort by Y (ascending = far players drawn first)
+    i = 0;
+    while (i < _player_count - 1) {
+        var j = 0;
+        while (j < _player_count - 1 - i) {
+            var pa = load64(&sorted + j * 8);
+            var pb = load64(&sorted + (j + 1) * 8);
+            var pa_ptr: *i64 = pa;
+            var pb_ptr: *i64 = pb;
+            var ya = *(pa_ptr + 1);
+            var yb = *(pb_ptr + 1);
+            if (ya > yb) {
+                // Swap
+                store64(&sorted + j * 8, pb);
+                store64(&sorted + (j + 1) * 8, pa);
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    // Draw players (back to front)
+    i = 0;
+    while (i < _player_count) {
+        var p = load64(&sorted + i * 8);
+        player_draw(p);
+        i = i + 1;
+    }
+
+    // Draw active player indicator (small marker above head)
+    var active = load64(&_players + _active_player * 8);
+    var act_ptr: *i64 = active;
+    var ax = *act_ptr;
+    var ay = *(act_ptr + 1);
+    var sx = court_game_to_screen_x(ax, ay);
+    var sy = court_game_to_screen_y(ay);
+    var scale = court_scale_at_y(ay);
+    var draw_h = asr_player(PLAYER_SPRITE_H * scale, 16);
+    // Small white triangle above head
+    fb_set(sx, sy - draw_h - 4, 8);
+    fb_set(sx - 1, sy - draw_h - 3, 8);
+    fb_set(sx + 1, sy - draw_h - 3, 8);
+    fb_set(sx - 2, sy - draw_h - 2, 8);
+    fb_set(sx, sy - draw_h - 2, 8);
+    fb_set(sx + 2, sy - draw_h - 2, 8);
+
+    // HUD placeholder: version text at top
+    // (Full HUD in v0.2.0)
+}
+
+// --- Frame timing ---
+
+fn sleep_ns(ns) {
+    // nanosleep syscall
+    // struct timespec { long tv_sec; long tv_nsec; }
+    var ts[2];
+    store64(&ts, ns / 1000000000);         // seconds
+    store64(&ts + 8, ns - (ns / 1000000000) * 1000000000);  // nanoseconds
+    syscall(35, &ts, 0);   // SYS_NANOSLEEP
+}
+
+fn get_time_ns() {
+    // clock_gettime(CLOCK_MONOTONIC, &ts)
+    var ts[2];
+    syscall(228, 1, &ts, 0);   // SYS_CLOCK_GETTIME, CLOCK_MONOTONIC
+    return load64(&ts) * 1000000000 + load64(&ts + 8);
+}
+
+// --- Main ---
 
 fn main() {
+    args_init();
+
+    // Check for --ppm flag
+    if (argc() > 1) {
+        var arg = argv(1);
+        if (streq(arg, "--ppm") == 1) {
+            _ppm_mode = 1;
+        }
+    }
+
+    game_init();
+
     println("cyrius-nba-jam v0.1.0");
+
+    if (_ppm_mode == 1) {
+        // PPM mode: render one frame and save screenshot
+        game_render();
+        render_write_ppm("/tmp/nba-jam.ppm");
+
+        var pixels = render_pixel_count();
+        println("wrote /tmp/nba-jam.ppm");
+        print("pixels: ");
+        fmt_int(pixels);
+        print("/");
+        fmt_int(SCREEN_W * SCREEN_H);
+        println("");
+
+        return 0;
+    }
+
+    // Interactive mode
+    input_init();
     println("BOOMSHAKALAKA!");
+    println("controls: WASD/arrows=move, space=shoot, z=pass, x=turbo, p=screenshot, q=quit");
 
-    // TODO: init framebuffer
-    // TODO: load assets (placeholder sprites)
-    // TODO: init game state
-    // TODO: game loop
+    var target_ns = 16666667;    // 60fps = 16.667ms
 
+    while (_running == 1) {
+        var frame_start = get_time_ns();
+
+        // Input
+        input_poll();
+        if (input_quit() == 1) { _running = 0; }
+
+        // Screenshot
+        if (input_screenshot() == 1) {
+            game_render();
+            render_write_ppm("/tmp/nba-jam.ppm");
+            println("screenshot: /tmp/nba-jam.ppm");
+        }
+
+        // Update
+        game_update();
+
+        // Render
+        game_render();
+
+        // Frame timing
+        var frame_end = get_time_ns();
+        var elapsed = frame_end - frame_start;
+        if (elapsed < target_ns) {
+            sleep_ns(target_ns - elapsed);
+        }
+    }
+
+    input_restore();
+    println("game over");
     return 0;
 }
 
